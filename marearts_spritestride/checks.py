@@ -1,5 +1,6 @@
 """Measured checks on a drawn frame, and its cut-out. They catch what the model gets wrong now and then: a third
-arm or leg, a carried box that turns or bobs, white paper left inside the figure."""
+arm or leg, a carried box that turns or bobs, white paper left inside the figure, and two steps half a cycle apart
+drawn on the same foot."""
 from __future__ import annotations
 
 import numpy as np
@@ -12,6 +13,10 @@ from .mannequin import ma_box_rect
 # squared), passed frames at most 2.4; legs across the shins at most 2 (3 at one height where a shoe and a cuff part).
 OUTSIDE_MAX, LEGS_MAX = 6.0, 3
 BOX_END_MAX, BOX_TOP_MAX = 0.15, 10.0
+# Two steps half a cycle apart must lead with different legs. On 32 frames of two sample characters, pairs that read
+# apart to the eye had 12 grey levels of lead or more each way; same-footed pairs had the same sign, or one under 5.
+SEEN = 10.0
+APART, SPREAD = 0.12, 0.30            # the mannequin's feet apart (share of height); without it, the legs' width
 
 
 def ma_person(mask: np.ndarray) -> np.ndarray:
@@ -118,3 +123,93 @@ def ma_cutout(frame: Image.Image, mask: Image.Image) -> np.ndarray:
     c = np.where(al[..., None] > 0.02, c, 0).clip(0, 255)
     return np.dstack([c, al * 255]).round().astype(np.uint8)
 
+
+
+def ma_leg_lead(frame: np.ndarray) -> tuple[float, float]:
+    """(lead, spread) of the legs of an RGBA frame facing right.
+
+    In profile both legs wear the same trousers, and what tells them apart is the light: the near leg is drawn
+    lighter. lead: how much lighter the front third of the legs is than the back third (grey levels), > 0 when the
+    near leg is in front. Measured from mid-thigh to the ankles, so a coat's hem and the shoes stay out.
+    spread: the legs' width as a share of the height.
+    """
+    m = ma_person(frame[..., 3] > 128)
+    ys = np.nonzero(m.any(1))[0]
+    if not len(ys):
+        return 0.0, 0.0
+    top, h = ys.min(), ys.max() - ys.min()
+    r0, r1 = top + int(0.62 * h), top + int(0.94 * h)
+    legs = m[r0:r1]
+    grey = frame[r0:r1, :, :3].astype(np.float64).mean(-1)
+    cols = np.nonzero(legs.any(0))[0]
+    if len(cols) < 6:
+        return 0.0, 0.0
+    x0, x1 = cols.min(), cols.max()
+    third = (x1 - x0) / 3
+    front, back = legs.copy(), legs.copy()
+    front[:, :int(x1 - third)] = False
+    back[:, int(x0 + third) + 1:] = False
+    if front.sum() < 20 or back.sum() < 20:
+        return 0.0, float((x1 - x0) / max(1, h))
+    return float(grey[front].mean() - grey[back].mean()), float((x1 - x0) / max(1, h))
+
+
+def ma_near_ahead(depth: Image.Image) -> float:
+    """How far the mannequin's near foot is ahead of its far foot, as a share of its height (< 0: behind). 0 when
+    one foot is off the bottom rows (mid-swing)."""
+    d = np.asarray(depth.convert("L"))
+    ys = np.nonzero((d > 30).any(1))[0]
+    if not len(ys):
+        return 0.0
+    top, bot = ys.min(), ys.max()
+    low = d[int(bot - 0.15 * (bot - top)):bot + 1]
+    near = np.nonzero(low > 190)[1]
+    far = np.nonzero((low > 45) & (low < 115))[1]
+    if not len(near) or not len(far):
+        return 0.0
+    return float((near.mean() - far.mean()) / max(1, bot - top))
+
+
+def ma_alternates(frames: list[np.ndarray], depths: list | None = None) -> dict:
+    """Whether the two steps of a cycle lead with different legs ("walking on the same foot" when not).
+
+    Frame i and frame i + half are half a cycle apart: one has the near leg in front, the other the far one, so
+    their leads (ma_leg_lead) must have opposite signs, each at least SEEN. Only pairs with the legs well apart are
+    measured; at mid-stance the legs cross and the light says nothing.
+
+    depths: the frames' mannequins. They say which leg should be in front, so a failed pair names the frame drawn
+    the wrong way (or too faint); without them both frames of a failed pair fail.
+    Returns {"ok", "fail": frame numbers, "pairs": [{frames, lead, measured, ok, fail}], "lead": per frame}.
+    """
+    half = len(frames) // 2
+    got = [ma_leg_lead(f) for f in frames]
+    ahead = [ma_near_ahead(d) for d in depths] if depths is not None else None
+    pairs, fail = [], set()
+    for i in range(half):
+        j = i + half
+        (a, sa), (b, sb) = got[i], got[j]
+        row = dict(frames=[i, j], lead=[round(a, 1), round(b, 1)])
+        if ahead is not None:
+            measured = min(abs(ahead[i]), abs(ahead[j])) >= APART and ahead[i] * ahead[j] < 0
+        else:
+            measured = min(sa, sb) >= SPREAD
+        ok = not measured or (a * b < 0 and min(abs(a), abs(b)) >= SEEN)
+        bad = []
+        if not ok:
+            if ahead is not None:      # the wrong way round, or too faint to see
+                bad = [k for k, v in ((i, a), (j, b)) if v * np.sign(ahead[k]) < SEEN]
+            bad = bad or [i, j]
+        row.update(measured=bool(measured), ok=bool(ok), fail=bad)
+        pairs.append(row)
+        fail |= set(bad)
+    return {"ok": not fail, "fail": sorted(fail), "pairs": pairs, "lead": [round(g[0], 1) for g in got]}
+
+
+def ma_alternate_reason(alt: dict, i: int) -> str:
+    """A few words for the review sheet on why frame i failed ma_alternates ("" if it did not)."""
+    for p in alt["pairs"]:
+        if i in p["fail"]:
+            a, b = p["lead"]
+            j = p["frames"][1] if p["frames"][0] == i else p["frames"][0]
+            return f"same leg as #{j}" if a * b > 0 else f"legs faint vs #{j}"
+    return ""

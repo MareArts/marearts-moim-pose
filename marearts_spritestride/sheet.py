@@ -91,9 +91,11 @@ def ma_review_sheet(frames: list[np.ndarray], report: list[dict], path: Path, ki
         d.text((x + 8, y + 8), f"#{i}", fill=(214, 40, 40) if bad else (30, 30, 30), font=font)
         if r:
             tries = len(r.get("tried", [r.get("seed")]))
-            d.text((x + 6, y + ch + 2), f"seed {r.get('seed')} · try {tries}" + (" · CHECKS FAILED" if bad else ""),
+            why = r.get("reason") or "CHECKS FAILED"
+            d.text((x + 6, y + ch + 2), f"seed {r.get('seed')} · try {tries}" + (f" · {why}" if bad else ""),
                    fill=(214, 40, 40) if bad else (60, 60, 60), font=font)
             measured = str(r.get("measured", "")) + (f", judge {r['judge'][:20]}" if r.get("judge") else "")
+            measured += f", lead {r['lead']:+.0f}" if "lead" in r else ""
             head, _, tail = measured.partition(", box")      # carry: the box numbers on their own line
             d.text((x + 6, y + ch + 16), head, fill=(90, 90, 90), font=font)
             if tail:

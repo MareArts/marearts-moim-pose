@@ -4,8 +4,11 @@ For each frame: the gait's pose -> depth mannequin -> FLUX.2 [klein] draws the p
 person out -> measured checks and (optional) the vision judge. A frame that fails is drawn again with another seed.
 Then the frames are locked together and written as a sheet, GIFs, a JSON and a review sheet.
 
-Not every frame comes out right: the checks catch extra limbs, a turning box and (with the judge) a third hand,
-but not which leg is in front, a hand drawn oddly, or a hat or pocket that changes. A person looks at the review
+When every frame is there, the two steps are compared: frame i and frame i + half must lead with different legs.
+A frame drawn on the same foot as its partner is drawn again with another seed, the same way.
+
+Not every frame comes out right: the checks catch extra limbs, a turning box, two steps on the same foot and (with
+the judge) a third hand, but not a hand drawn oddly, or a hat or pocket that changes. A person looks at the review
 sheet and draws the frames they do not like again by number (--only); those get seeds they have not had.
 """
 from __future__ import annotations
@@ -18,7 +21,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from .checks import ma_cutout, ma_frame_ok
+from .checks import ma_alternate_reason, ma_alternates, ma_cutout, ma_frame_ok
 from .comfy import MaComfy, ma_cutout_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt
 from .gait import H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
 from .lock import ma_far_shade, ma_lock
@@ -57,6 +60,7 @@ class MaRequest:
     height: int | None = 256             # sprite height in px (None: full size)
     fps: int = 8
     far_shade: float = 0.55              # the far leg's brightness (1: as drawn)
+    alternate: bool = True               # draw again a frame on the same foot as the one half a cycle away
 
 
 def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | None = None, log=print,
@@ -77,34 +81,82 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     tries = len(SEEDS) if judge is not None else 3
     path = out / f"{req.kind}_report.json"
     report = {r["frame"]: r for r in (json.loads(path.read_text(encoding="utf-8")) if path.exists() else [])}
-    for i in only if only is not None else range(req.frames):
+    dnames = {}
+
+    def draw(i, sd):
+        """Frame i at seed sd, drawn, cut out and checked: (passes, what was measured, the judge's answer)."""
+        if i not in dnames:
+            dnames[i] = comfy.upload(depths[i], f"{req.name}_{req.kind}_depth_{i}.png")
+            depths[i].save(raw / f"{req.kind}_{i}_depth.png")
+        frame = comfy.run(ma_klein_depth_graph(dnames[i], ref_name, prompt, seed=sd), raw / f"{req.kind}_{i}.png")
+        fname = comfy.upload(Image.open(frame).convert("RGB"), f"{req.name}_{req.kind}_{i}_frame.png")
+        mask = comfy.run(ma_cutout_graph(fname), raw / f"{req.kind}_{i}_mask.png")
+        rgb = np.asarray(Image.open(frame).convert("RGB"))
+        m = np.asarray(Image.open(mask).convert("L").resize((rgb.shape[1], rgb.shape[0]))) > 128
+        ok, said = ma_frame_ok(rgb, m, depths[i], pts[i], req.kind)
+        verdict = ""
+        if ok and judge is not None:
+            ok, verdict = judge.arms_ok(Image.open(frame), req.kind)
+        log(f"frame {i} seed {sd}: {said}" + (f", judge {verdict!r}" if verdict else "") + (" ok" if ok else " again"))
+        return ok, said, verdict
+
+    def cut(i):
+        return ma_cutout(Image.open(raw / f"{req.kind}_{i}.png"), Image.open(raw / f"{req.kind}_{i}_mask.png"))
+
+    drawn = list(only) if only is not None else list(range(req.frames))
+    for i in drawn:
         t0 = time.time()
-        dname = comfy.upload(depths[i], f"{req.name}_{req.kind}_depth_{i}.png")
-        depths[i].save(raw / f"{req.kind}_{i}_depth.png")
         # drawn again (a person did not like it): never a seed this frame already had, or the same picture comes back
         tried = report.get(i, {}).get("tried", [])
         seeds = [use_seed] if use_seed is not None else [s for s in ma_seeds(req.seed) if s not in tried][:tries]
         for sd in seeds:
             tried = tried + ([sd] if sd not in tried else [])
-            frame = comfy.run(ma_klein_depth_graph(dname, ref_name, prompt, seed=sd), raw / f"{req.kind}_{i}.png")
-            fname = comfy.upload(Image.open(frame).convert("RGB"), f"{req.name}_{req.kind}_{i}_frame.png")
-            mask = comfy.run(ma_cutout_graph(fname), raw / f"{req.kind}_{i}_mask.png")
-            rgb = np.asarray(Image.open(frame).convert("RGB"))
-            m = np.asarray(Image.open(mask).convert("L").resize((rgb.shape[1], rgb.shape[0]))) > 128
-            ok, said = ma_frame_ok(rgb, m, depths[i], pts[i], req.kind)
-            verdict = ""
-            if ok and judge is not None:
-                ok, verdict = judge.arms_ok(Image.open(frame), req.kind)
-            log(f"frame {i} seed {sd}: {said}" + (f", judge {verdict!r}" if verdict else "") + (" ok" if ok else " again"))
+            ok, said, verdict = draw(i, sd)
             if ok:
                 break
         else:
-            log(f"frame {i}: every seed failed, look at {frame}")
-        report[i] = dict(frame=i, seed=sd, tried=tried, passed=ok, measured=said, judge=verdict,
+            log(f"frame {i}: every seed failed, look at {raw / f'{req.kind}_{i}.png'}")
+        report[i] = dict(frame=i, seed=sd, tried=tried, passed=ok, checks=ok, measured=said, judge=verdict,
                          seconds=round(time.time() - t0))
+    missing = [i for i in range(req.frames) if not (raw / f"{req.kind}_{i}.png").exists()]
+    if not missing and req.alternate:
+        cuts = {i: cut(i) for i in range(req.frames)}
+        alt = ma_alternates([cuts[i] for i in range(req.frames)], depths)
+        # a frame on the same foot as its partner: drawn again with seeds it has not had (not with --use-seed, where
+        # the person chose the picture); only frames drawn in this run
+        for i in [k for k in alt["fail"] if k in drawn] if use_seed is None else []:
+            t0, r = time.time(), report[i]
+            keep = {p: p.read_bytes() for p in (raw / f"{req.kind}_{i}.png", raw / f"{req.kind}_{i}_mask.png")}
+            pair = next(p for p in alt["pairs"] if i in p["fail"])
+            for sd in [s for s in ma_seeds(req.seed) if s not in r["tried"]][:tries]:
+                r["tried"].append(sd)
+                ok, said, verdict = draw(i, sd)
+                if not ok:
+                    continue
+                cuts[i] = cut(i)
+                two = ma_alternates([cuts[k] for k in pair["frames"]], [depths[k] for k in pair["frames"]])
+                if pair["frames"].index(i) not in two["fail"]:
+                    log(f"frame {i} seed {sd}: leads with the other leg now, ok")
+                    report[i].update(seed=sd, passed=True, checks=True, measured=said, judge=verdict)
+                    break
+                log(f"frame {i} seed {sd}: still on the same foot, again")
+            else:
+                log(f"frame {i}: no seed led with the other leg, kept seed {r['seed']}; look at it")
+                for p, data in keep.items():
+                    p.write_bytes(data)
+                cuts[i] = cut(i)
+            r["seconds"] = r.get("seconds", 0) + round(time.time() - t0)
+        alt = ma_alternates([cuts[i] for i in range(req.frames)], depths)
+        for i, r in report.items():
+            if i >= req.frames:
+                continue
+            r["lead"] = alt["lead"][i]
+            r["passed"] = bool(r.get("checks", r.get("passed", True))) and i not in alt["fail"]
+            r["reason"] = ma_alternate_reason(alt, i)
+            if r["reason"]:
+                log(f"frame {i}: {r['reason']} (leg lead {r['lead']:+.0f})")
     rows = [report[k] for k in sorted(report)]
     path.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
-    missing = [i for i in range(req.frames) if not (raw / f"{req.kind}_{i}.png").exists()]
     if missing:
         log(f"frames {missing} not drawn yet: no lock or sheet")
         return dict(report=rows, files={})

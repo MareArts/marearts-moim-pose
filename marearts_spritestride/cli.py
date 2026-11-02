@@ -54,7 +54,7 @@ def _request(args):
                      change=getattr(args, "change", ""), gait=_gait(args), frames=args.frames,
                      seed=getattr(args, "seed", 7), head=args.head, bust=args.bust,
                      height=None if args.height == 0 else args.height, fps=args.fps,
-                     far_shade=args.far_shade)
+                     far_shade=args.far_shade, alternate=not getattr(args, "no_alternate", False))
 
 
 def cmd_draw(args):
@@ -118,6 +118,8 @@ def main(argv=None):
             p.add_argument("--only", type=int, nargs="*", default=None, help="draw only these frames again")
             p.add_argument("--use-seed", type=int, default=None,
                            help="with --only: this exact seed (go back to an earlier try; see the report's tried list)")
+            p.add_argument("--no-alternate", action="store_true",
+                           help="do not draw again a frame on the same foot as the one half a cycle away")
         p.add_argument("--out", required=True)
         p.add_argument("--height", type=int, default=256, help="sprite height in px, 0 for full size")
         p.add_argument("--fps", type=int, default=8)
