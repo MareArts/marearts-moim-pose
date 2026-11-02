@@ -1,0 +1,73 @@
+import numpy as np
+from PIL import Image
+
+from marearts_spritestride.checks import ma_box_drift, ma_cutout, ma_extra_limbs, ma_frame_ok
+from marearts_spritestride.gait import LANK, RANK, ma_walk_points
+from marearts_spritestride.mannequin import NEAR, ma_box_rect, ma_depth, ma_legs_mask, ma_skeleton
+
+
+def test_near_leg_is_brighter_than_far():
+    pts = ma_walk_points(0.0)
+    d = np.asarray(ma_depth(pts).convert("L"))
+    near = d[int(pts[LANK][1]), int(pts[LANK][0])]
+    far = d[int(pts[RANK][1]), int(pts[RANK][0])]
+    assert near > far + 60
+    assert near > NEAR - 40
+
+
+def test_carry_box_is_in_the_mannequin():
+    pts = ma_walk_points(0.1, carry=True)
+    d = np.asarray(ma_depth(pts, box=True).convert("L"))
+    x0, y0, x1, y1 = (int(v) for v in ma_box_rect(pts))
+    assert np.median(d[y0 + 5:y1 - 5, x0 + 5:x1 - 5]) >= 190
+
+
+def test_skeleton_draws():
+    im = ma_skeleton(ma_walk_points(0.3))
+    assert np.asarray(im).sum() > 0
+
+
+def test_limbs_clean_and_extra():
+    pts = ma_walk_points(0.2)
+    dep = ma_depth(pts)
+    person = ma_legs_mask(dep)
+    outside, legs = ma_extra_limbs(person, dep)
+    assert outside < 1 and legs <= 2
+    third = person.copy()
+    ys = np.nonzero(person.any(1))[0]
+    y = int(ys.min() + 0.5 * (ys.max() - ys.min()))
+    third[y:y + 250, 20:90] = True                          # an arm-sized piece where none can be, joined by a bar
+    third[y + 50:y + 54, 90:int(np.nonzero(person[y + 52])[0].min()) + 1] = True
+    assert ma_extra_limbs(third, dep)[0] > 6
+
+
+def test_box_drift_and_frame_ok():
+    pts = ma_walk_points(0.1, carry=True)
+    dep = ma_depth(pts, box=True)
+    rgb = np.full((*np.asarray(dep).shape[:2], 3), 255, np.uint8)
+    x0, y0, x1, y1 = (int(v) for v in ma_box_rect(pts))
+    rgb[y0:y1, x0:x1] = (196, 150, 90)                     # cardboard, seen square
+    mask = ma_legs_mask(dep)
+    top, end = ma_box_drift(rgb, mask, pts)
+    assert abs(top) <= 2 and end < 0.05
+    ok, said = ma_frame_ok(rgb, mask, dep, pts, "carry")
+    assert ok, said
+
+
+def test_cutout_unmixes_white_and_keeps_eye():
+    frame = Image.new("RGB", (100, 200), "white")
+    px = frame.load()
+    for y in range(20, 190):
+        for x in range(30, 70):
+            px[x, y] = (230, 180, 150)                       # skin-ish figure
+    mask = Image.new("L", (100, 200), 0)
+    mp = mask.load()
+    for y in range(20, 190):
+        for x in range(30, 70):
+            mp[x, y] = 255
+    for y in range(35, 40):
+        for x in range(50, 55):
+            mp[x, y] = 0                                     # the eye white read as paper
+    rgba = ma_cutout(frame, mask)
+    assert rgba[37, 52, 3] == 255
+    assert rgba[5, 5, 3] == 0

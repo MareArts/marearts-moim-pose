@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "marearts-spritestride"
+version = "0.1.0"
+description = "Walk-cycle sprites of one person from one picture: depth mannequin, FLUX.2 [klein] in ComfyUI, checks and a lock"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [{ name = "MareArts" }]
+requires-python = ">=3.10"
+dependencies = ["numpy", "pillow", "scipy", "scikit-image"]
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Games/Entertainment",
+]
+
+[project.optional-dependencies]
+judge = ["torch", "transformers>=4.57"]
+test = ["pytest"]
+
+[project.scripts]
+spritestride = "marearts_spritestride.cli:main"
+
+[project.urls]
+Homepage = "https://www.marearts.com/blogs/open-lab"
+
+[tool.setuptools]
+packages = ["marearts_spritestride"]
