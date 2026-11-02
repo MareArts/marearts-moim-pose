@@ -1,8 +1,7 @@
 # marearts-spritestride
 
 <p align="center">
-  <img src="docs/rin-walk.gif" alt="Rin, a character drawn from one sentence, walking across a strip" width="100%">
-  <img src="docs/otto-carry.gif" alt="Otto, an older man in a flat cap, carrying a box across a strip" width="100%">
+  <img src="docs/rin-walk-sheet.png" alt="Rin, drawn from one sentence: the eight frames of her walk" width="70%">
 </p>
 
 Walk-cycle sprites of one person from one picture. Give it a side view of a character; it draws the same
@@ -33,8 +32,8 @@ passed the automatic checks at the first seed; four of Rin's frames were drawn a
 
 | | walk | carrying a box |
 |---|---|---|
-| **Rin** — `--gait lively --look "a young woman with a short black bob, a yellow raincoat, dark blue jeans, red sneakers"` | <img src="docs/rin-walk-sheet.png" width="260"> | <img src="docs/rin-carry-loop.gif" width="120"> |
-| **Otto** — `--gait older --look "an older man with a short grey beard and a brown flat cap, a brown corduroy jacket over a cream shirt, olive trousers, brown leather boots"` | <img src="docs/otto-walk-loop.gif" width="120"> | <img src="docs/otto-carry.gif" width="260"> |
+| **Rin** — `--gait lively --look "a young woman with a short black bob, a yellow raincoat, dark blue jeans, red sneakers"` | <img src="docs/rin-walk-sheet.png" width="260"> | (see the review sheet below) |
+| **Otto** — `--gait older --look "an older man with a short grey beard and a brown flat cap, a brown corduroy jacket over a cream shirt, olive trousers, brown leather boots"` | — | — |
 
 ## Install
 
@@ -113,7 +112,7 @@ An image model draws every frame, and now and then it draws something wrong. Mea
 | Frames that passed the automatic checks at the first seed | 84 % — the rest at the 2nd to 4th seed |
 | Walk cycles a person passed at the first look (one review of 12) | 4 of 12 — the others had a leg or a hand drawn oddly, a hat, beard or pocket that changed, a mouth open |
 | What the checks catch | a third arm or leg, a carried box that turns or bobs, a third hand (with the judge) |
-| What they do not catch yet | which leg is in front, an odd hand pose, small changes in clothes or face |
+| What they do not catch yet | which leg is in front, an odd hand pose, small changes in clothes or face — and when both legs are drawn in the same colour, a loop can look as if it steps on the same foot |
 
 <p align="center"><img src="docs/rin-walk-review.png" alt="The review sheet: every frame with its number, seed and what was measured" width="100%"></p>
 <p align="center"><sub>Rin's walk review sheet after the redraws. Frames 3 and 7 first came out with the face turned toward the viewer; the next seeds turned her further, so frame 3 went back to seed 7 (<code>--use-seed 7</code>).</sub></p>
