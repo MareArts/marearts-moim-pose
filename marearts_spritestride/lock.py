@@ -42,6 +42,27 @@ def ma_legs_dx(person: np.ndarray, floor: int, pts: dict, depth) -> int:
     return -max(range(-60, 61), key=lambda x: (np.roll(a, x, 1) & b).sum() - 0.5 * (np.roll(a, x, 1) ^ b).sum())
 
 
+def ma_far_shade(frame: np.ndarray, depth, k: float = 0.55) -> np.ndarray:
+    """The far leg darker, as sprite artists draw it.
+
+    Both legs of a side view wear the same trousers, so a correct cycle still reads as "the same foot" at a glance:
+    frames 0 and 4 look alike. The mannequin knows which leg is far (its dark one); a locked frame stands on its
+    mannequin's legs, so that leg is darkened to k, from below the hem of a coat down to the shoe."""
+    from scipy import ndimage
+    d = np.asarray(depth.convert("L")).astype(np.float64)
+    man = ma_legs_mask(depth)
+    ys = np.nonzero(man.any(1))[0]
+    far = ndimage.binary_dilation((d > 35) & (d < 115), iterations=6) & ~(d > 130)    # widened to the drawn leg
+    soft = ndimage.gaussian_filter(far.astype(np.float64), 3)
+    t0, t1 = (ys.min() + r * (ys.max() - ys.min()) for r in (0.60, 0.68))            # mid-thigh: legs only
+    soft *= np.clip((np.arange(len(d)) - t0) / (t1 - t0), 0, 1)[:, None]
+    floor = np.nonzero((frame[..., 3] > 128).any(1))[0].max()
+    soft = np.roll(soft, int(floor - ys.max()), 0)
+    out = frame.copy()
+    out[..., :3] = (frame[..., :3] * (1 - (1 - k) * soft[..., None])).clip(0, 255).round().astype(np.uint8)
+    return out
+
+
 def ma_lock(frames: list[np.ndarray], phases: list[float], pts: list[dict], depths: list, master: int = 0,
             align_legs: bool = True) -> list[np.ndarray]:
     """RGBA frames (same size) -> RGBA frames with one height, one head size and an even step."""

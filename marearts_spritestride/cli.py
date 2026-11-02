@@ -53,7 +53,8 @@ def _request(args):
                      out=Path(args.out), name=Path(args.out).name, kind=args.kind, look=getattr(args, "look", ""),
                      change=getattr(args, "change", ""), gait=_gait(args), frames=args.frames,
                      seed=getattr(args, "seed", 7), head=args.head, bust=args.bust,
-                     height=None if args.height == 0 else args.height, fps=args.fps)
+                     height=None if args.height == 0 else args.height, fps=args.fps,
+                     far_shade=args.far_shade)
 
 
 def cmd_draw(args):
@@ -120,6 +121,8 @@ def main(argv=None):
         p.add_argument("--out", required=True)
         p.add_argument("--height", type=int, default=256, help="sprite height in px, 0 for full size")
         p.add_argument("--fps", type=int, default=8)
+        p.add_argument("--far-shade", type=float, default=0.55,
+                       help="the far leg's brightness, so left and right steps differ (1: as drawn)")
         _common(p)
         p.set_defaults(fn=fn)
 

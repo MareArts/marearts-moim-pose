@@ -21,7 +21,7 @@ from PIL import Image
 from .checks import ma_cutout, ma_frame_ok
 from .comfy import MaComfy, ma_cutout_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt
 from .gait import H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
-from .lock import ma_lock
+from .lock import ma_far_shade, ma_lock
 from .mannequin import ma_depth
 from .sheet import ma_loop_gif, ma_meta, ma_review_sheet, ma_sheet, ma_sprites, ma_strip_gif
 
@@ -56,6 +56,7 @@ class MaRequest:
     bust: float = 0.0
     height: int | None = 256             # sprite height in px (None: full size)
     fps: int = 8
+    far_shade: float = 0.55              # the far leg's brightness (1: as drawn)
 
 
 def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | None = None, log=print,
@@ -146,6 +147,8 @@ def ma_finish(req: MaRequest, phases=None, pts=None, depths=None) -> dict:
     cut = [ma_cutout(Image.open(raw / f"{req.kind}_{i}.png"), Image.open(raw / f"{req.kind}_{i}_mask.png"))
            for i in range(req.frames)]
     locked = ma_lock(cut, phases, pts, depths)
+    if req.far_shade < 1:
+        locked = [ma_far_shade(f, d, req.far_shade) for f, d in zip(locked, depths)]
     for i, f in enumerate(locked):
         Image.fromarray(f).save(out / f"{req.kind}_{i}.png")
     path = out / f"{req.kind}_report.json"

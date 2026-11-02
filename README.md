@@ -1,7 +1,7 @@
 # marearts-spritestride
 
 <p align="center">
-  <img src="docs/rin-walk-sheet.png" alt="Rin, drawn from one sentence: the eight frames of her walk" width="70%">
+  <img src="docs/walk-loops.gif" alt="Rin and Otto, each drawn from one sentence, walking and carrying a box in 8-frame loops" width="100%">
 </p>
 
 Walk-cycle sprites of one person from one picture. Give it a side view of a character; it draws the same
@@ -17,7 +17,7 @@ It runs on an 8 GB GPU through ComfyUI with FLUX.2 [klein] 4B, and every model i
 | Problem | Why | What spritestride does |
 |---|---|---|
 | The character changes from frame to frame (sleeves, hem, colours) | Each frame is drawn on its own | An **edit** model: the character's own picture goes in as a reference latent, and the words name each piece of clothing |
-| It walks "on the same foot" | In profile the two legs of a pose skeleton lie on one line, so the model cannot tell which is in front | A **depth mannequin** instead of a skeleton: far limbs dark, near limbs bright |
+| It walks "on the same foot" | In profile the two legs of a pose skeleton lie on one line, so the model cannot tell which is in front | A **depth mannequin** instead of a skeleton: far limbs dark, near limbs bright. In the finished frames the **far leg is drawn darker**, as sprite artists do, so the left and right steps read apart even in the same trousers |
 | A third hand appears now and then | The model guesses where the far arm is | Measured checks against the mannequin, and an optional **vision-model judge** on a crop of the torso; a failed frame is drawn again with another seed |
 | Height and head size wobble a few percent, and the feet slide | Drawn frames are never exactly the size of the pose | A **lock**: one master frame sets the head and the floor, the height follows the walk's own smooth wave, the legs are laid on the mannequin's legs |
 | The sprite skates across the ground in a game | Even time steps move the planted foot unevenly | Frame phases chosen so the planted foot goes back the **same distance every frame**; that distance is written to the JSON |
@@ -30,10 +30,14 @@ It runs on an 8 GB GPU through ComfyUI with FLUX.2 [klein] 4B, and every model i
 Both characters were made from words only (`spritestride person`), then walked and given a box. All 32 frames
 passed the automatic checks at the first seed; four of Rin's frames were drawn again after a look (see below).
 
-| | walk | carrying a box |
-|---|---|---|
-| **Rin** — `--gait lively --look "a young woman with a short black bob, a yellow raincoat, dark blue jeans, red sneakers"` | <img src="docs/rin-walk-sheet.png" width="260"> | (see the review sheet below) |
-| **Otto** — `--gait older --look "an older man with a short grey beard and a brown flat cap, a brown corduroy jacket over a cream shirt, olive trousers, brown leather boots"` | — | — |
+| | made with |
+|---|---|
+| **Rin** | `--gait lively --look "a young woman with a short black bob, a yellow raincoat, dark blue jeans, red sneakers"` |
+| **Otto** | `--gait older --look "an older man with a short grey beard and a brown flat cap, a brown corduroy jacket over a cream shirt, olive trousers, brown leather boots"` |
+
+The loops at the top are the four cycles. Rin's walk as the sprite sheet a game reads:
+
+<p align="center"><img src="docs/rin-walk-sheet.png" alt="Rin's walk: the eight frames of the sprite sheet, the far leg darker" width="70%"></p>
 
 ## Install
 
@@ -87,6 +91,7 @@ spritestride finish --out out/alice
 | `--bust` | how far the chest stands out in the mannequin (0.13 for a fuller figure); the silhouette comes from the depth |
 | `--change` | the one thing to draw differently from the picture |
 | `--height` | sprite height in px (default 256, 0 = full 832 x 1216 frame) |
+| `--far-shade` | how bright the far leg stays (default 0.55; 1 = as drawn) |
 
 Out, in `--out`:
 
@@ -112,7 +117,7 @@ An image model draws every frame, and now and then it draws something wrong. Mea
 | Frames that passed the automatic checks at the first seed | 84 % — the rest at the 2nd to 4th seed |
 | Walk cycles a person passed at the first look (one review of 12) | 4 of 12 — the others had a leg or a hand drawn oddly, a hat, beard or pocket that changed, a mouth open |
 | What the checks catch | a third arm or leg, a carried box that turns or bobs, a third hand (with the judge) |
-| What they do not catch yet | which leg is in front, an odd hand pose, small changes in clothes or face — and when both legs are drawn in the same colour, a loop can look as if it steps on the same foot |
+| What they do not catch yet | a leg the model drew on the wrong side of its mannequin, an odd hand pose, small changes in clothes or face. The far leg is darkened from the mannequin (`--far-shade`, 1 = off), so a cycle drawn right reads left-right; a leg drawn wrong still needs your eye |
 
 <p align="center"><img src="docs/rin-walk-review.png" alt="The review sheet: every frame with its number, seed and what was measured" width="100%"></p>
 <p align="center"><sub>Rin's walk review sheet after the redraws. Frames 3 and 7 first came out with the face turned toward the viewer; the next seeds turned her further, so frame 3 went back to seed 7 (<code>--use-seed 7</code>).</sub></p>

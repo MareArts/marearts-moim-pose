@@ -71,3 +71,18 @@ def test_cutout_unmixes_white_and_keeps_eye():
     rgba = ma_cutout(frame, mask)
     assert rgba[37, 52, 3] == 255
     assert rgba[5, 5, 3] == 0
+
+
+def test_far_leg_shaded_near_leg_and_body_kept():
+    from marearts_spritestride.gait import NECK_I
+    from marearts_spritestride.lock import ma_far_shade
+    pts = ma_walk_points(0.0)
+    dep = ma_depth(pts)
+    frame = np.zeros(np.asarray(dep).shape[:2] + (4,), np.uint8)
+    frame[ma_legs_mask(dep)] = (200, 200, 200, 255)              # a grey figure standing on its mannequin
+    out = ma_far_shade(frame, dep, 0.5)
+    at = lambda p, dy=0: out[int(p[1]) + dy, int(p[0]), 0]
+    assert at(pts[RANK], -20) < 120                              # far shin dark
+    assert at(pts[LANK], -20) == 200                             # near shin as drawn
+    assert at(pts[NECK_I], 40) == 200                            # body as drawn
+    assert ma_far_shade(frame, dep, 1.0)[..., :3].sum() == frame[..., :3].sum()
