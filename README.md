@@ -1,5 +1,10 @@
 # marearts-spritestride
 
+<p align="center">
+  <img src="docs/rin-walk.gif" alt="Rin, a character drawn from one sentence, walking across a strip" width="100%">
+  <img src="docs/otto-carry.gif" alt="Otto, an older man in a flat cap, carrying a box across a strip" width="100%">
+</p>
+
 Walk-cycle sprites of one person from one picture. Give it a side view of a character; it draws the same
 character walking (or carrying a box) in 8 frames that loop, checks every frame, locks height and head size
 across the cycle, and writes a sprite sheet, GIFs and a small JSON a game can read.
@@ -17,6 +22,19 @@ It runs on an 8 GB GPU through ComfyUI with FLUX.2 [klein] 4B, and every model i
 | A third hand appears now and then | The model guesses where the far arm is | Measured checks against the mannequin, and an optional **vision-model judge** on a crop of the torso; a failed frame is drawn again with another seed |
 | Height and head size wobble a few percent, and the feet slide | Drawn frames are never exactly the size of the pose | A **lock**: one master frame sets the head and the floor, the height follows the walk's own smooth wave, the legs are laid on the mannequin's legs |
 | The sprite skates across the ground in a game | Even time steps move the planted foot unevenly | Frame phases chosen so the planted foot goes back the **same distance every frame**; that distance is written to the JSON |
+
+<p align="center"><img src="docs/mannequin.png" alt="Two pose skeletons half a step apart look almost the same; two depth mannequins show the near leg in front, then behind" width="100%"></p>
+<p align="center"><sub>Left: the pose skeleton at two steps half a cycle apart — almost the same shape. Right: the depth mannequin at the same steps — near limbs bright, far ones dark.</sub></p>
+
+## Examples
+
+Both characters were made from words only (`spritestride person`), then walked and given a box. All 32 frames
+passed the automatic checks at the first seed; four of Rin's frames were drawn again after a look (see below).
+
+| | walk | carrying a box |
+|---|---|---|
+| **Rin** — `--gait lively --look "a young woman with a short black bob, a yellow raincoat, dark blue jeans, red sneakers"` | <img src="docs/rin-walk-sheet.png" width="260"> | <img src="docs/rin-carry-loop.gif" width="120"> |
+| **Otto** — `--gait older --look "an older man with a short grey beard and a brown flat cap, a brown corduroy jacket over a cream shirt, olive trousers, brown leather boots"` | <img src="docs/otto-walk-loop.gif" width="120"> | <img src="docs/otto-carry.gif" width="260"> |
 
 ## Install
 
@@ -96,6 +114,9 @@ An image model draws every frame, and now and then it draws something wrong. Mea
 | Walk cycles a person passed at the first look (one review of 12) | 4 of 12 — the others had a leg or a hand drawn oddly, a hat, beard or pocket that changed, a mouth open |
 | What the checks catch | a third arm or leg, a carried box that turns or bobs, a third hand (with the judge) |
 | What they do not catch yet | which leg is in front, an odd hand pose, small changes in clothes or face |
+
+<p align="center"><img src="docs/rin-walk-review.png" alt="The review sheet: every frame with its number, seed and what was measured" width="100%"></p>
+<p align="center"><sub>Rin's walk review sheet after the redraws. Frames 3 and 7 first came out with the face turned toward the viewer; the next seeds turned her further, so frame 3 went back to seed 7 (<code>--use-seed 7</code>).</sub></p>
 
 So the tool gives you **drafts that are checked**, not finished art. After every cycle open `walk_review.png`: every
 frame with its number, seed and what was measured, frames that failed the checks boxed in red, and what to look at
