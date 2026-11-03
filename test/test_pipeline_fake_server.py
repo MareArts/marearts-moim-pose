@@ -353,3 +353,36 @@ def test_video_frame_that_lost_a_hand_gets_the_hands_drawn_again(tmp_path):
     row = next(r for r in res["report"] if r["frame"] == 2)
     assert row["passed"] and row["engine"] == "video" and len(row["tried"]) == 2, lines
     assert any("frame 2" in s and "hands drawn again" in s for s in lines)
+
+
+def test_video_frame_kept_when_drawn_on_its_own_fails_too(tmp_path):
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    class Judge:
+        """Frame 2 fails every way: made sharp (1), its hands drawn again (6), drawn on its own (6)."""
+        def __init__(self):
+            self.n = 0
+
+        def arms_ok(self, im, kind, hands=None):
+            self.n += 1
+            bad = 4 <= self.n <= 16
+            return (not bad), ("near hand missing" if bad else "2; near hand there")
+
+        def feet_ok(self, im):
+            return True, "2"
+
+        def facing(self, im):
+            return "right"
+    try:
+        ref = tmp_path / "person.png"
+        Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
+        lines = []
+        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120),
+                            MaComfy(f"http://127.0.0.1:{srv.server_port}"), judge=Judge(), log=lines.append)
+    finally:
+        srv.shutdown()
+    row = next(r for r in res["report"] if r["frame"] == 2)
+    assert not row["passed"] and row["engine"] == "video" and len(row["tried"]) == 13, lines
+    assert any("kept the video's frame" in s for s in lines)
+    assert all(r["passed"] for r in res["report"] if r["frame"] != 2)

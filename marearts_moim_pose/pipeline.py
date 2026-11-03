@@ -170,7 +170,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         # drawn again (a person did not like it): never a seed this frame already had, or the same picture comes back
         tried = report.get(i, {}).get("tried", [])
         seeds = [use_seed] if use_seed is not None else [s for s in ma_seeds(req.seed) if s not in tried][:tries]
-        ok, frm = False, None
+        ok, frm, kept = False, None, None
         if i in starts:
             sd = seeds[0]
             tried = tried + ([sd] if sd not in tried else [])
@@ -193,12 +193,23 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
                 if ok:
                     break
         if not ok and i in starts:
+            # drawn on its own only if that passes: an arm half way back failed both ways on every seed, and a frame
+            # drawn on its own broke the one look of the cycle (clothes change 6.9 -> 11.1, 11-03); the video's
+            # frame is kept then, failed, for a person's look
+            keep = {p: p.read_bytes() for p in (raw / f"{req.kind}_{i}.png", raw / f"{req.kind}_{i}_mask.png")}
+            kept = (sd, said, verdict)
             log(f"frame {i}: no sharp frame from the video passed, drawn on its own")
             for sd in [x for x in ma_seeds(req.seed) if x not in tried][:tries]:
                 tried = tried + [sd]
                 ok, said, verdict = draw(i, sd)
                 if ok:
+                    kept = None
                     break
+            if not ok:
+                for p, data in keep.items():
+                    p.write_bytes(data)
+                sd, said, verdict = kept
+                log(f"frame {i}: kept the video's frame (seed {sd}); look at it")
         # every seed drew the hand where the standing picture has it (an arm half way back): the frame is drawn from
         # a neighbour that passed instead, whose arm is already near; one step only, so the look does not drift
         if not ok and judge is not None and use_seed is None and i not in starts:
@@ -220,7 +231,8 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         if not ok:
             log(f"frame {i}: every seed failed, look at {raw / f'{req.kind}_{i}.png'}")
         report[i] = dict(frame=i, seed=sd, tried=tried, passed=ok, checks=ok, measured=said, judge=verdict,
-                         seconds=round(time.time() - t0), engine="video" if i in starts and ok else "frames",
+                         seconds=round(time.time() - t0),
+                         engine="video" if i in starts and (ok or kept) else "frames",
                          **({"from_frame": frm} if frm is not None else {}))
 
     drawn = list(only) if only is not None else list(range(req.frames))
