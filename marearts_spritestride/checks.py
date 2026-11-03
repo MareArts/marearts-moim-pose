@@ -17,6 +17,7 @@ BOX_END_MAX, BOX_TOP_MAX = 0.15, 10.0
 # apart to the eye had 12 grey levels of lead or more each way; same-footed pairs had the same sign, or one under 5.
 SEEN = 10.0
 APART, SPREAD = 0.12, 0.30            # the mannequin's feet apart (share of height); without it, the legs' width
+FACING_SURE = 0.006                   # toes past the ankles by less than this share of the height: cannot tell
 
 
 def ma_person(mask: np.ndarray) -> np.ndarray:
@@ -109,6 +110,24 @@ def ma_eye_holes(rgb: np.ndarray, alpha: np.ndarray) -> np.ndarray:
         if ring.any() and (skin[ring].mean() > 0.1 or alpha[c].min() > 0.2):
             out |= c
     return out
+
+
+def ma_facing(mask: np.ndarray) -> float:
+    """Which way a standing person faces, from the feet: the shoes reach past the ankles toward the toes.
+
+    + right, - left, as a share of the height; near 0 (under FACING_SURE) it cannot tell. On 8 pictures it was
+    right on 7 and unsure on the eighth (feet set one behind the other)."""
+    m = ma_person(mask)
+    ys = np.nonzero(m.any(1))[0]
+    if len(ys) < 20:
+        return 0.0
+    top, floor = int(ys.min()), int(ys.max())
+    h = floor - top
+
+    def cx(a, b):
+        xs = np.nonzero(m[int(floor - a * h):int(floor - b * h) + 1])[1]
+        return xs.mean() if len(xs) else 0.0
+    return float((cx(0.03, 0.0) - cx(0.10, 0.06)) / max(1, h))
 
 
 def ma_cutout(frame: Image.Image, mask: Image.Image) -> np.ndarray:

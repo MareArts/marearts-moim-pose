@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from .checks import ma_alternate_reason, ma_alternates, ma_cutout, ma_frame_ok
+from .checks import FACING_SURE, ma_alternate_reason, ma_alternates, ma_cutout, ma_facing, ma_frame_ok
 from .comfy import MaComfy, ma_cutout_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt
 from .gait import H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
 from .lock import ma_far_shade, ma_lock
@@ -44,6 +44,30 @@ def ma_reference(im: Image.Image) -> Image.Image:
     return can.resize((W, H), Image.LANCZOS)
 
 
+def ma_face_right(im: Image.Image, mask: np.ndarray | None = None, facing: str = "auto", judge=None,
+                  log=print) -> Image.Image:
+    """The person picture turned to face right, as the mannequin walks.
+
+    A picture facing left drawn over a mannequin walking right comes out with the head and coat facing left on legs
+    walking right, a third hand and steps on the same foot. facing: "right" or "left" says it; "auto" asks the
+    judge if there is one, else reads the feet (mask: the person; without it, anything not white)."""
+    way = facing
+    if way == "auto":
+        way = judge.facing(im) if judge is not None else ""
+        if not way:
+            a = np.asarray(im.convert("RGB")).astype(int)
+            m = mask if mask is not None else ((a < 235).any(-1) & ((a.max(-1) - a.min(-1) > 40) | (a.max(-1) < 150)))
+            v = ma_facing(m)
+            way = "right" if v >= FACING_SURE else "left" if v <= -FACING_SURE else ""
+        if not way:
+            log("the picture's facing is unclear: taken as facing right (say --facing left if it faces left)")
+            way = "right"
+    if way == "left":
+        log("the picture faces left: mirrored to face right")
+        return im.transpose(Image.FLIP_LEFT_RIGHT)
+    return im
+
+
 @dataclass
 class MaRequest:
     reference: Path
@@ -61,6 +85,7 @@ class MaRequest:
     fps: int = 8
     far_shade: float = 0.55              # the far leg's brightness (1: as drawn)
     alternate: bool = True               # draw again a frame on the same foot as the one half a cycle away
+    facing: str = "auto"                 # which way the person picture faces: auto | right | left (mirrored)
 
 
 def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | None = None, log=print,
@@ -72,7 +97,15 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     out = Path(req.out)
     raw = out / "raw"
     raw.mkdir(parents=True, exist_ok=True)
-    ref_name = comfy.upload(ma_reference(Image.open(req.reference)), f"{req.name}_ref.png")
+    ref = ma_reference(Image.open(req.reference))
+    if req.facing != "right":
+        mask = None
+        if req.facing == "auto" and judge is None:
+            m = comfy.run(ma_cutout_graph(comfy.upload(ref, f"{req.name}_ref_in.png")), raw / "reference_mask.png")
+            mask = np.asarray(Image.open(m).convert("L").resize(ref.size)) > 128
+        ref = ma_face_right(ref, mask, req.facing, judge, log)
+    ref.save(raw / "reference.png")
+    ref_name = comfy.upload(ref, f"{req.name}_ref.png")
     carry = req.kind == "carry"
     phases = ma_frame_phases(req.frames, req.gait)
     pts = [ma_walk_points(t, req.gait, carry=carry) for t in phases]
@@ -179,6 +212,10 @@ def ma_new_person(comfy: MaComfy, look: str, out: Path, count: int = 4, seed: in
         whole = len(ys) and ys.min() > 4 and ys.max() < m.shape[0] - 4 and fig.sum() > 0.8 * (m > 128).sum()
         tall = len(ys) and (ys.max() - ys.min()) > 1.6 * (xs.max() - xs.min())
         log(f"{p.name}: " + ("ok" if whole and tall else "not one whole standing figure"))
+        if whole and tall and ma_facing(fig) <= -FACING_SURE:     # asked for facing right, drawn facing left
+            for q in (p, out / f"person_{seed + k}_mask.png"):
+                Image.open(q).transpose(Image.FLIP_LEFT_RIGHT).save(q)
+            log(f"{p.name}: faced left, mirrored")
         if whole and tall:
             kept.append(p)
     return kept

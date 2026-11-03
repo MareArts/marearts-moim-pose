@@ -49,8 +49,8 @@ class Fake(BaseHTTPRequestHandler):
         elif "10" in g:                                   # a frame: the mannequin painted, scaled per frame
             name = g["10"]["inputs"]["image"]
             d = np.asarray(self.uploads[name].convert("L")).astype(np.float64)
-            k = 1 + 0.03 * ((self.count[0] % 5) - 2)
             frame = int(re.search(r"_depth_(\d+)", name).group(1))
+            k = 1 + 0.03 * ((frame % 5) - 2)              # by frame, not by call (the reference is cut out too)
             if (frame, g["22"]["inputs"]["noise_seed"]) in self.same_foot:
                 d = np.where(d > 30, 295 - d, d)          # far leg lit, near leg dark: drawn on the other foot
             shade = (0.35 + 0.65 * d / 255)[..., None] * np.array([90, 120, 200])
@@ -161,6 +161,7 @@ def test_new_person(tmp_path):
 
 def test_verdict():
     assert ma_verdict("2", "walk") and not ma_verdict("3", "walk") and not ma_verdict("", "walk")
+    assert not ma_verdict("hand behind the body, hand 2 in front of the coat, hand in front\n3", "walk")
     assert ma_verdict("No.", "carry") and not ma_verdict("Yes", "carry")
 
 
@@ -207,3 +208,23 @@ def test_same_foot_every_seed_fails_in_red(tmp_path):
     assert saved[4]["reason"] == "same leg as #0" and not saved[4]["passed"]
     sheet = np.asarray(Image.open(res["files"]["review"]).convert("RGB"))
     assert (np.abs(sheet[54 + 350 + 46 + 2, 4:236] - [214, 40, 40]).sum(-1) < 10).mean() > 0.9   # frame 4 boxed red
+
+
+def test_picture_facing_left_is_mirrored(tmp_path):
+    from marearts_spritestride.checks import FACING_SURE, ma_facing
+    from marearts_spritestride.pipeline import ma_face_right
+    im = Image.new("RGB", (300, 700), "white")
+    im.paste(Image.new("RGB", (60, 600), (40, 60, 120)), (120, 40))      # a standing figure
+    im.paste(Image.new("RGB", (110, 25), (180, 30, 30)), (70, 615))       # its shoes reach left: it faces left
+    m = (np.asarray(im) < 235).any(-1)
+    assert ma_facing(m) <= -FACING_SURE
+    assert ma_facing(m[:, ::-1]) >= FACING_SURE
+    lines = []
+    out = ma_face_right(im, log=lines.append)
+    assert np.array_equal(np.asarray(out), np.asarray(im)[:, ::-1]) and "mirrored" in lines[0]
+    assert ma_face_right(im, facing="right") is im
+
+    class Judge:
+        def facing(self, im):
+            return "right"
+    assert ma_face_right(im, judge=Judge()) is im                        # the judge's answer wins over the feet

@@ -29,7 +29,10 @@ It runs on an 8 GB GPU through ComfyUI with FLUX.2 [klein] 4B, and every model i
 
 Both characters were made from words only (`spritestride person`), then walked and given a box. All 32 frames
 passed the 0.1.1 checks at the first seed; four of Rin's frames were drawn again after a look (see below). The
-same-foot check added in 0.1.2 fails 10 of those 32 frames, so a new run draws them again.
+same-foot check added in 0.1.2 fails 10 of those 32 frames, so a new run draws them again. Both pictures turned out
+to face **left**: drawn over a mannequin walking right, the head and coat faced left on legs walking right, with a
+third hand before the coat. 0.1.3 turns such a picture round first (`--facing`), and the judge now names each hand
+before it counts (it had missed 5 of 9 third hands). These examples are from before that and are being drawn again.
 
 | | made with |
 |---|---|
@@ -63,7 +66,10 @@ vision model behind an OpenAI-compatible server (llama.cpp, vLLM, Ollama).
 
 ## Use
 
-The reference picture: the whole character standing, side view, **facing right**, on a plain background.
+The reference picture: the whole character standing, side view, **facing right**, on a plain background. A picture
+facing left is mirrored first: the judge says which way it faces, or without the judge the feet do (the shoes reach
+past the ankles toward the toes); `--facing left|right` says it yourself. `spritestride person` mirrors candidates
+drawn facing left.
 
 ```bash
 # no picture yet? candidates for a new character from words (pick one you like)
@@ -93,6 +99,7 @@ spritestride finish --out out/alice
 | `--change` | the one thing to draw differently from the picture |
 | `--height` | sprite height in px (default 256, 0 = full 832 x 1216 frame) |
 | `--far-shade` | how bright the far leg stays (default 0.55; 1 = as drawn) |
+| `--facing` | `auto` (default), `right`, or `left` (the picture is mirrored to face right) |
 | `--no-alternate` | keep a frame that leads with the same leg as the frame half a cycle away (by default it is drawn again) |
 
 Out, in `--out`:

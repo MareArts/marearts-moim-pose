@@ -18,12 +18,19 @@ import urllib.request
 
 from PIL import Image
 
-ASK_WALK = ("Look at this cartoon drawing closely. How many separate hands (fists or palms with fingers) can you see? "
-            "Count every hand, also one that is partly behind the body or the trousers. Answer with one number only.")
+# Asked for a number alone it said 2 on frames with a third hand hanging before the coat (5 of 9 wrong); made to
+# name each hand first, it counted all 9 right (Rin's walk, 11-03).
+ASK_WALK = ("Look at this cartoon drawing closely. List every hand you can see, from left to right, one short phrase "
+            "each (for example: hand behind the body, hand in front of the coat, hand in front of the body). Then on "
+            "the last line write the number of hands.")
 # Carrying, a third arm hangs by the hip while two hands hold the box, and a hand count sees only those two.
 ASK_CARRY = ("Look at this cartoon drawing closely. Is there a hand or arm hanging down beside the hip or the trousers, "
              "below the box and not touching the box? Answer yes or no.")
 TORSO = (0.15, 0.25, 0.85, 0.62)          # shoulders to thighs: hands are small in the whole frame
+# The reference picture's way: on 16 pictures (8 and the same mirrored) it answered all 16 right, on the head alone.
+ASK_FACING = ("This is a side view of one person. Which way is the person's face pointing: to the left side of the "
+              "picture or to the right side? Answer with one word: left or right.")
+HEAD = (0.0, 0.0, 1.0, 0.3)
 
 
 def ma_torso(im: Image.Image) -> Image.Image:
@@ -36,8 +43,8 @@ def ma_verdict(answer: str, kind: str) -> bool:
     """Carrying: no hand hangs by the hip. Walking: at most two hands."""
     if kind == "carry":
         return not answer.strip().lower().startswith("yes")
-    m = re.search(r"\d+", answer)
-    return bool(m) and int(m.group()) <= 2
+    m = re.findall(r"\d+", answer)                  # the last number: the count after the list
+    return bool(m) and int(m[-1]) <= 2
 
 
 class MaJudge:
@@ -48,6 +55,14 @@ class MaJudge:
         """(frame passes, the model's answer)."""
         ans = self.ask(ma_torso(im), ASK_CARRY if kind == "carry" else ASK_WALK)
         return ma_verdict(ans, kind), ans
+
+    def facing(self, im: Image.Image) -> str:
+        """'left', 'right' or '' (no clear answer): which way the person in a standing picture faces."""
+        w, h = im.size
+        x0, y0, x1, y1 = HEAD
+        ans = self.ask(im.convert("RGB").crop((int(w * x0), int(h * y0), int(w * x1), int(h * y1))), ASK_FACING)
+        ans = ans.strip().lower()
+        return "left" if ans.startswith("left") else "right" if ans.startswith("right") else ""
 
 
 class MaLocalJudge(MaJudge):
@@ -64,7 +79,7 @@ class MaLocalJudge(MaJudge):
         x = self.proc.apply_chat_template(msg, add_generation_prompt=True, tokenize=True, return_dict=True,
                                           return_tensors="pt", enable_thinking=False).to(self.model.device)
         with self.torch.no_grad():
-            out = self.model.generate(**x, max_new_tokens=8, do_sample=False)
+            out = self.model.generate(**x, max_new_tokens=96, do_sample=False)
         return self.proc.decode(out[0, x["input_ids"].shape[1]:], skip_special_tokens=True).strip()
 
 
@@ -76,7 +91,7 @@ class MaHttpJudge(MaJudge):
         buf = io.BytesIO()
         im.save(buf, "PNG")
         image = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
-        body = {"model": self.model, "temperature": 0, "max_tokens": 8,
+        body = {"model": self.model, "temperature": 0, "max_tokens": 96,
                 "messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": image}},
                                                           {"type": "text", "text": text}]}]}
         req = urllib.request.Request(self.url + "/v1/chat/completions", json.dumps(body).encode(),

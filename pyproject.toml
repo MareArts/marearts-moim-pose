@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "marearts-spritestride"
-version = "0.1.2"
+version = "0.1.3"
 description = "Walk-cycle sprites of one person from one picture: depth mannequin, FLUX.2 [klein] in ComfyUI, checks and a lock"
 readme = "README.md"
 license = { text = "Apache-2.0" }
