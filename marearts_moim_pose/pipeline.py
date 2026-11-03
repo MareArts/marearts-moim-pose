@@ -22,7 +22,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from .checks import FACING_SURE, ma_alternate_reason, ma_alternates, ma_cutout, ma_facing, ma_frame_ok
+from .checks import (CHANGE_MAX, FACING_SURE, ma_alternate_reason, ma_alternates, ma_clothes_change, ma_cutout,
+                     ma_facing, ma_frame_ok)
 from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, STYLE, VIDEO_H, VIDEO_W, WALK, MaComfy, ma_arm_words,
                     ma_cutout_graph, ma_hand_fix_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt,
                     ma_sharpen_graph, ma_video_graph)
@@ -310,9 +311,11 @@ def ma_video_starts(req: MaRequest, comfy: MaComfy, depths: list, raw: Path, log
     first = comfy.upload(Image.open(raw / f"{req.kind}_0.png").convert("RGB").resize((VIDEO_W, VIDEO_H), Image.LANCZOS),
                          f"{req.name}_{req.kind}_vfirst.png")
     t0 = time.time()
+    comfy.free()
     graph = ma_video_graph([names[j % n] for j in range(length)], first, ma_video_prompt(req.look, req.kind),
                            seed=req.seed)
     frames = comfy.run_all(graph, raw / "video", stem=req.kind)
+    comfy.free()                                         # the frame model again next
     log(f"the cycle drawn as a video: {len(frames)} frames, {round(time.time() - t0)} s")
     return {i: comfy.upload(Image.open(frames[n + i]).convert("RGB").resize((W, H), Image.LANCZOS),
                             f"{req.name}_{req.kind}_vstart_{i}.png") for i in range(n) if n + i < len(frames)}
@@ -366,12 +369,21 @@ def ma_finish(req: MaRequest, phases=None, pts=None, depths=None) -> dict:
     report = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
     # the two steps, checked on the frames as they are written (after the leg tones), so the sheet says what shows
     alt = ma_alternates(locked, depths)
+    # the clothes from one frame to the next, on the frames as drawn: a jump fails both frames of the pair
+    change = ma_clothes_change([np.asarray(Image.open(raw / f"{req.kind}_{i}.png").convert("RGB"))
+                                for i in range(req.frames)], pts)
+    jumps = {}
+    for i, c in enumerate(change):
+        if c > CHANGE_MAX:
+            jumps.setdefault(i, f"clothes jump to #{(i + 1) % req.frames}")
+            jumps.setdefault((i + 1) % req.frames, f"clothes jump from #{i}")
     for r in report:
         i = r["frame"]
         if i < req.frames:
             r["lead"] = alt["lead"][i]
-            r["passed"] = bool(r.get("checks", r.get("passed", True))) and i not in alt["fail"]
-            r["reason"] = ma_alternate_reason(alt, i)
+            r["clothes_change"] = round(change[i], 1)
+            r["passed"] = bool(r.get("checks", r.get("passed", True))) and i not in alt["fail"] and i not in jumps
+            r["reason"] = "; ".join(x for x in (ma_alternate_reason(alt, i), jumps.get(i, "")) if x)
     if report:
         path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     review = ma_review_sheet(locked, report, out / f"{req.kind}_review.png", req.kind)

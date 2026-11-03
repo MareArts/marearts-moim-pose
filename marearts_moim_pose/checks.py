@@ -77,6 +77,38 @@ def ma_arm_reach(mask: np.ndarray, depth: Image.Image, pts: dict) -> float:
     return float(max(np.percentile(ahead, 90), np.percentile(behind, 90)) / h * 100)
 
 
+# Clothes from frame to frame (grey levels, the torso away from both arms): drawn one by one from the picture an
+# older man's walk changed up to 33 between frames, drawn as a video 14.5-18; over 20 the clothes visibly jump.
+CHANGE_MAX = 20.0
+
+
+def ma_clothes_change(frames: list[np.ndarray], pts: list[dict]) -> list[float]:
+    """For each frame, how much its torso differs from the next frame's (the last against the first), on the raw
+    frames as drawn over their mannequins: the mean grey difference inside the body, away from both arms."""
+    from scipy import ndimage
+    from PIL import ImageDraw
+    from .gait import FIG, LHIP, LSHO, NECK_I, RSHO
+
+    def mask(p, arms):
+        m = Image.new("L", (W, H))
+        d = ImageDraw.Draw(m)
+        if arms:
+            for s in (LSHO, RSHO):
+                d.line([p[s], p[s + 1], p[s + 2]], fill=255, width=int(0.09 * FIG))
+        else:
+            neck, hip = p[NECK_I], p[LHIP]
+            d.line([(neck[0], neck[1] + 0.06 * FIG), (hip[0], hip[1] - 0.02 * FIG)], fill=255, width=int(0.13 * FIG))
+        return np.asarray(m) > 0
+    grey = [ndimage.gaussian_filter(np.asarray(Image.fromarray(f).convert("L").resize((W, H))).astype(float), 2)
+            for f in frames]
+    out = []
+    for i in range(len(frames)):
+        j = (i + 1) % len(frames)
+        m = mask(pts[i], False) & mask(pts[j], False) & ~mask(pts[i], True) & ~mask(pts[j], True)
+        out.append(float(np.abs(grey[i] - grey[j])[m].mean()) if m.any() else 0.0)
+    return out
+
+
 def ma_box_drift(rgb: np.ndarray, mask: np.ndarray, pts: dict) -> tuple[float, float]:
     """A carried cardboard box as drawn: (its top against the mannequin's box top in px, the share of it that is the
     darker end face). Seen square from the side the end face is 0.01-0.10 of the box; turned, 0.24-0.36."""

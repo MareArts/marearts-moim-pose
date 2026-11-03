@@ -152,3 +152,15 @@ def test_judge_counts_shoes():
     j = Judge(2)
     j.feet_ok(im)
     assert j.boxes == [(832, 1216 - int(1216 * 0.62))]                    # the legs and feet only
+
+
+def test_clothes_change_between_frames():
+    from marearts_moim_pose.checks import CHANGE_MAX, ma_clothes_change
+    pts = [ma_walk_points(t) for t in ma_frame_phases(4, ma_gait())]
+    same = [np.asarray(ma_depth(pts[0]))] * len(pts)            # the same drawing in every frame
+    assert max(ma_clothes_change(same, pts)) < CHANGE_MAX
+    jumped = [f.copy() for f in same]
+    jumped[2][...] = 255                                        # frame 2 drawn in other clothes: white
+    c = ma_clothes_change(jumped, pts)
+    assert c[1] > CHANGE_MAX and c[2] > CHANGE_MAX              # the pairs into and out of frame 2
+    assert c[0] < CHANGE_MAX

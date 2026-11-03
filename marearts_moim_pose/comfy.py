@@ -318,6 +318,14 @@ class MaComfy:
                 paths.append(p)
         return paths
 
+    def free(self):
+        """Unload the server's models and free its memory: on an 8 GB card the frame model still loaded left the
+        video model too little, and the server died in its VAE (11-03)."""
+        req = urllib.request.Request(self.url + "/free", data=json.dumps({"unload_models": True, "free_memory": True})
+                                     .encode(), headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            r.read()
+
     def object_info(self) -> dict:
         return self.call("/object_info")
 

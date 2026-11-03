@@ -36,6 +36,9 @@ class Fake(BaseHTTPRequestHandler):
 
     def do_POST(self):
         data = self.rfile.read(int(self.headers["Content-Length"]))
+        if self.path == "/free":
+            self.calls.append("free")
+            return self._send(b"{}")
         if self.path == "/upload/image":
             name = re.search(rb'filename="([^"]+)"', data).group(1).decode()
             png = data[data.index(b"\x89PNG"):data.rindex(b"\r\n--")]
@@ -63,7 +66,7 @@ class Fake(BaseHTTPRequestHandler):
             name = g["10"]["inputs"]["image"]
             d = np.asarray(self.uploads[name].convert("L")).astype(np.float64)
             frame = int(re.search(r"_depth_(\d+)", name).group(1))
-            k = 1 + 0.03 * ((frame % 5) - 3)              # by frame, not by call; over 1.03 the head leaves the canvas
+            k = 1 + 0.01 * ((frame % 5) - 3)              # by frame, not by call; over 1.03 the head leaves the canvas
             if (frame, g["22"]["inputs"]["noise_seed"]) in self.same_foot:
                 d = np.where(d > 30, 295 - d, d)          # far leg lit, near leg dark: drawn on the other foot
             shade = (0.35 + 0.65 * d / 255)[..., None] * np.array([90, 120, 200])
@@ -313,7 +316,8 @@ def test_cycle_drawn_as_a_video_then_made_sharp(tmp_path):
                             MaComfy(f"http://127.0.0.1:{srv.server_port}"), log=lambda s: None)
         frames = MaRequest(reference=ref, out=tmp_path).frames
         assert Fake.calls.count("video") == 1
-        assert Fake.calls.count("sharpen") == frames and Fake.calls.index("video") == 1   # frame 0, then the video
+        assert Fake.calls.count("sharpen") == frames
+        assert Fake.calls[:4] == ["frame", "free", "video", "free"]      # frame 0, then the video on a freed card
         assert all(r["engine"] == "video" and r["passed"] for r in res["report"])
         assert len(list((tmp_path / "out" / "raw" / "video").glob("walk_*.png"))) == 2 * frames + 1
         Fake.calls.clear()
