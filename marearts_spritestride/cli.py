@@ -22,14 +22,14 @@ from .mannequin import ma_depth, ma_skeleton
 
 def _gait(args):
     g = ma_gait(args.gait)
-    changes = {k: getattr(args, k) for k in ("step", "knee", "arm", "lean") if getattr(args, k) is not None}
+    changes = {k: getattr(args, k) for k in ("step", "knee", "arm", "lean", "elbow") if getattr(args, k) is not None}
     return ma_gait(g, **changes)
 
 
 def _common(p):
     p.add_argument("--kind", choices=("walk", "carry"), default="walk")
     p.add_argument("--gait", choices=sorted(PRESETS), default=None, help="a preset walk")
-    for k in ("step", "knee", "arm", "lean"):
+    for k in ("step", "knee", "arm", "lean", "elbow"):
         p.add_argument(f"--{k}", type=float, default=None)
     p.add_argument("--frames", type=int, default=8)
     p.add_argument("--head", type=float, default=0.19, help="head width / height of the person")

@@ -26,13 +26,15 @@ class MaGait:
 
     step: stride as a share of the base stride · knee: how far the swinging knee bends · arm: arm swing in degrees
     each way · lean: body lean forward in degrees · back: extra reach of the backward arm swing (edit models draw
-    it short, so the skeleton asks for a little more).
+    it short, so the skeleton asks for a little more) · elbow: how much the elbow bends (1: 12 degrees, more on the
+    forward swing; less keeps the hand nearer the hip).
     """
     step: float = 0.85
     knee: float = 0.85
     arm: float = 17.0
     lean: float = 0.5
     back: float = 1.6
+    elbow: float = 1.0
 
 
 # Walks that read as different people. Arms below ~14 degrees look stuck to the hip once drawn.
@@ -111,7 +113,7 @@ def ma_walk_points(t: float, gait: MaGait | None = None, carry: bool = False) ->
             sw = g.arm * math.cos(2 * math.pi * t) * sign
             if sw < 0:
                 sw *= g.back
-            up, fo = math.radians(sw), math.radians(sw + 12 + max(0, sw) * 0.6)
+            up, fo = math.radians(sw), math.radians(sw + g.elbow * (12 + max(0, sw) * 0.6))
         sh = (neck[0] - (0.014 * s if side == "R" else 0), neck[1] + 0.025 * s)
         el = (sh[0] + UPPER * s * math.sin(up), sh[1] + UPPER * s * math.cos(up))
         wr = (el[0] + FORE * s * math.sin(fo), el[1] + FORE * s * math.cos(fo))
