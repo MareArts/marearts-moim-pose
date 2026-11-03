@@ -1,8 +1,9 @@
 import numpy as np
 from PIL import Image
 
-from marearts_spritestride.checks import ma_box_drift, ma_cutout, ma_extra_limbs, ma_frame_ok
-from marearts_spritestride.gait import LANK, RANK, ma_walk_points
+from marearts_spritestride.checks import REACH_MAX, ma_arm_reach, ma_box_drift, ma_cutout, ma_extra_limbs, ma_frame_ok
+from marearts_spritestride.comfy import ARMS_HANG, ARMS_NEAR_BACK, ARMS_NEAR_FORWARD, ma_arm_words
+from marearts_spritestride.gait import LANK, LELB, LSHO, LWRI, RANK, ma_frame_phases, ma_gait, ma_walk_points
 from marearts_spritestride.mannequin import NEAR, ma_box_rect, ma_depth, ma_legs_mask, ma_skeleton
 
 
@@ -39,6 +40,30 @@ def test_limbs_clean_and_extra():
     third[y:y + 250, 20:90] = True                          # an arm-sized piece where none can be, joined by a bar
     third[y + 50:y + 54, 90:int(np.nonzero(person[y + 52])[0].min()) + 1] = True
     assert ma_extra_limbs(third, dep)[0] > 6
+
+
+def test_arm_words_follow_the_swing():
+    for name in ("lively", "older"):
+        g = ma_gait(name)
+        pts = [ma_walk_points(t, g) for t in ma_frame_phases(8, g)]
+        widest = max(abs(p[LELB][0] - p[LSHO][0]) for p in pts)
+        words = [ma_arm_words(p, widest) for p in pts]
+        assert words[2] == words[6] == ARMS_HANG                 # the legs pass: the arms hang
+        assert words[0] == words[7] == ARMS_NEAR_BACK            # near leg ahead, near arm back
+        assert words[4] == ARMS_NEAR_FORWARD
+
+
+def test_arm_reach_catches_a_hand_swung_forward():
+    pts = ma_walk_points(0.21)
+    dep = ma_depth(pts)
+    person = ma_legs_mask(dep)
+    assert ma_arm_reach(person, dep, pts) < 1
+    swung = person.copy()
+    y, x = int(pts[LWRI][1]), int(np.nonzero(person[int(pts[LWRI][1])])[0].max())
+    swung[y - 160:y, x - 5:x + 90] = True                    # a forearm and hand out in front of the body
+    assert ma_arm_reach(swung, dep, pts) > REACH_MAX
+    ok, said = ma_frame_ok(np.zeros((*swung.shape, 3), np.uint8), swung, dep, pts, "walk")
+    assert not ok and "arms" in said
 
 
 def test_box_drift_and_frame_ok():

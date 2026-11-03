@@ -43,17 +43,38 @@ ARMS_WALK = ("The arms swing in the walk: the near arm swings forward or back ex
              "at most.")
 ARMS_CARRY = ("Both forearms hold the box; the near arm is in front of the box, the far hand hidden behind it. Two "
               "hands at most.")
+# The same words on every frame drew one hand in front of the coat and one behind it on all eight: the arms stood
+# still while the legs walked, and where the mannequin's arms hang (legs passing) a third hand came. Each frame is
+# told where its arms are (11-03).
+ARMS_HANG = ("Both arms hang straight down at the sides, the near hand beside the hip, the far arm hidden behind the "
+             "body; no hand in front of the body or behind it. Two hands at most.")
+ARMS_NEAR_FORWARD = ("The near arm swings forward, its hand just in front of the hip; the far arm swings back, its "
+                     "hand just behind the back. Two hands at most.")
+ARMS_NEAR_BACK = ("The near arm swings back, its hand just behind the back; the far arm swings forward, its hand just "
+                  "in front of the body. Two hands at most.")
+HANG = 0.35                           # a swing under this share of the widest one: the arms hang
 
 
-def ma_prompt(look: str = "", kind: str = "walk", style: str = STYLE, change: str = "") -> str:
+def ma_arm_words(pts: dict, widest: float) -> str:
+    """Where a walk frame's arms are, in words: from the near elbow ahead of its shoulder (px) against the widest
+    such swing of the cycle (the wrist is always a little ahead: the elbow bends)."""
+    from .gait import LELB, LSHO
+    ahead = pts[LELB][0] - pts[LSHO][0]
+    if abs(ahead) < HANG * widest:
+        return ARMS_HANG
+    return ARMS_NEAR_FORWARD if ahead > 0 else ARMS_NEAR_BACK
+
+
+def ma_prompt(look: str = "", kind: str = "walk", style: str = STYLE, change: str = "", arms: str = "") -> str:
     """The words for one frame. image 1 is the depth mannequin, image 2 the person (the LoRA's trained wording).
 
     look: the person in words as well as in image 2 (from the picture alone a piece that changes between frames
-    drifts). change: the one thing to draw differently from image 2, e.g. "a fuller figure than in image 2"."""
+    drifts). change: the one thing to draw differently from image 2, e.g. "a fuller figure than in image 2".
+    arms: this frame's arm words (ma_arm_words) in place of the general ones."""
     who = f"The same person as image 2, {look} —" if look else "The same person as image 2 —"
     same = f"the same face, hair, clothes and shoes; {change} —" if change else \
         "the same face, hair, clothes and shoes, nothing added —"
-    action, arms = (CARRY, ARMS_CARRY) if kind == "carry" else (WALK, ARMS_WALK)
+    action, arms = (CARRY, ARMS_CARRY) if kind == "carry" else (WALK, arms or ARMS_WALK)
     return (f"refcontrol, {who} {same} {action}, the mouth closed in a calm, gentle smile, side view facing right, "
             f"plain white background, {style}. {arms}")
 

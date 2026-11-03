@@ -22,8 +22,8 @@ import numpy as np
 from PIL import Image
 
 from .checks import FACING_SURE, ma_alternate_reason, ma_alternates, ma_cutout, ma_facing, ma_frame_ok
-from .comfy import MaComfy, ma_cutout_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt
-from .gait import H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
+from .comfy import MaComfy, ma_arm_words, ma_cutout_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt
+from .gait import LSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
 from .lock import ma_leg_tones, ma_lock
 from .mannequin import ma_depth
 from .sheet import ma_loop_gif, ma_meta, ma_review_sheet, ma_sheet, ma_sprites, ma_strip_gif
@@ -112,7 +112,9 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     phases = ma_frame_phases(req.frames, req.gait)
     pts = [ma_walk_points(t, req.gait, carry=carry) for t in phases]
     depths = [ma_depth(p, head=req.head, box=carry, bust=req.bust) for p in pts]
-    prompt = ma_prompt(req.look, req.kind, change=req.change)
+    widest = max(abs(p[LSHO + 1][0] - p[LSHO][0]) for p in pts)
+    prompts = [ma_prompt(req.look, req.kind, change=req.change, arms="" if carry else ma_arm_words(p, widest))
+               for p in pts]
     tries = len(SEEDS) if judge is not None else 3
     path = out / f"{req.kind}_report.json"
     report = {r["frame"]: r for r in (json.loads(path.read_text(encoding="utf-8")) if path.exists() else [])}
@@ -123,7 +125,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         if i not in dnames:
             dnames[i] = comfy.upload(depths[i], f"{req.name}_{req.kind}_depth_{i}.png")
             depths[i].save(raw / f"{req.kind}_{i}_depth.png")
-        frame = comfy.run(ma_klein_depth_graph(dnames[i], ref_name, prompt, seed=sd), raw / f"{req.kind}_{i}.png")
+        frame = comfy.run(ma_klein_depth_graph(dnames[i], ref_name, prompts[i], seed=sd), raw / f"{req.kind}_{i}.png")
         fname = comfy.upload(Image.open(frame).convert("RGB"), f"{req.name}_{req.kind}_{i}_frame.png")
         mask = comfy.run(ma_cutout_graph(fname), raw / f"{req.kind}_{i}_mask.png")
         rgb = np.asarray(Image.open(frame).convert("RGB"))

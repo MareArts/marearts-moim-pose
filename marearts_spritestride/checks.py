@@ -18,6 +18,9 @@ BOX_END_MAX, BOX_TOP_MAX = 0.15, 10.0
 SEEN = 10.0
 APART, SPREAD = 0.12, 0.30            # the mannequin's feet apart (share of height); without it, the legs' width
 FACING_SURE = 0.006                   # toes past the ankles by less than this share of the height: cannot tell
+# An arm the model swung on its own (a hand reaching forward where the mannequin's arms hang): on 24 walk frames of
+# two characters, arms as the mannequin had them reached at most 4.4 % of the height past it, swung ones 6.8-12.5.
+REACH_MAX = 5.0
 
 
 def ma_person(mask: np.ndarray) -> np.ndarray:
@@ -52,6 +55,28 @@ def ma_extra_limbs(mask: np.ndarray, depth: Image.Image) -> tuple[float, int]:
     return big, sorted(counts)[-2]
 
 
+def ma_arm_reach(mask: np.ndarray, depth: Image.Image, pts: dict) -> float:
+    """How far the drawn arms reach past the mannequin's, in % of the person's height: in the rows from below the
+    shoulders to just under the lower hand, the person's front edge past the mannequin's, and its back edge, the
+    90th percentile of each, the larger."""
+    from .gait import LSHO, RSHO
+    m = ma_person(mask)
+    man = np.asarray(depth.convert("L").resize(m.shape[::-1])) > 20
+    ys = np.nonzero(m.any(1))[0]
+    h = ys.max() - ys.min()
+    r0 = int(pts[LSHO][1] + 0.08 * h)
+    r1 = int(max(pts[LSHO + 2][1], pts[RSHO + 2][1]) + 0.03 * h)
+    ahead, behind = [], []
+    for r in range(r0, min(r1, len(m))):
+        a, b = np.nonzero(m[r])[0], np.nonzero(man[r])[0]
+        if len(a) and len(b):
+            ahead.append(a.max() - b.max())
+            behind.append(b.min() - a.min())
+    if not ahead:
+        return 0.0
+    return float(max(np.percentile(ahead, 90), np.percentile(behind, 90)) / h * 100)
+
+
 def ma_box_drift(rgb: np.ndarray, mask: np.ndarray, pts: dict) -> tuple[float, float]:
     """A carried cardboard box as drawn: (its top against the mannequin's box top in px, the share of it that is the
     darker end face). Seen square from the side the end face is 0.01-0.10 of the box; turned, 0.24-0.36."""
@@ -74,6 +99,10 @@ def ma_frame_ok(rgb: np.ndarray, mask: np.ndarray, depth: Image.Image, pts: dict
     outside, legs = ma_extra_limbs(mask, depth)
     said = f"outside {outside:.1f}, legs {legs}"
     ok = outside < OUTSIDE_MAX and legs < LEGS_MAX
+    if kind == "walk":
+        reach = ma_arm_reach(mask, depth, pts)
+        said += f", arms {reach:.1f}"
+        ok = ok and reach <= REACH_MAX
     if kind == "carry":
         top, end = ma_box_drift(rgb, mask, pts)
         said += f", box top {top:+.0f} px, end face {end:.2f}"
