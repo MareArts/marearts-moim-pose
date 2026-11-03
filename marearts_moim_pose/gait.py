@@ -150,7 +150,7 @@ def ma_walk_points(t: float, gait: MaGait | None = None, carry: bool = False) ->
     return pts
 
 
-def ma_frame_phases(frames: int = 8, gait: MaGait | None = None) -> list[float]:
+def ma_frame_phases(frames: int = 12, gait: MaGait | None = None) -> list[float]:
     """Walk phases for the frames, chosen so the planted foot goes back the same distance every frame (a game moves
     the sprite the same distance each frame, or the foot slides). The standing leg is solved for a steady foot
     (ma_stance_thigh), so these come out even (i / frames) and the arms and the swinging leg move evenly too.
@@ -164,7 +164,7 @@ def ma_frame_phases(frames: int = 8, gait: MaGait | None = None) -> list[float]:
     return first + [t + 0.5 for t in first]
 
 
-def ma_stride_px(frames: int = 8, gait: MaGait | None = None) -> float:
+def ma_stride_px(frames: int = 12, gait: MaGait | None = None) -> float:
     """How far (px on the W x H frame) the sprite must move each frame for the planted foot to stay put."""
     ts = np.linspace(0, 0.5, 201)
     xs = np.minimum.accumulate([ma_walk_points(t, gait)[LANK][0] for t in ts])

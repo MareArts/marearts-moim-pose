@@ -31,7 +31,7 @@ def _common(p):
     p.add_argument("--gait", choices=sorted(PRESETS), default=None, help="a preset walk")
     for k in ("step", "knee", "arm", "lean", "elbow"):
         p.add_argument(f"--{k}", type=float, default=None)
-    p.add_argument("--frames", type=int, default=8)
+    p.add_argument("--frames", type=int, default=12, help="frames a cycle (even); 8 for a smaller sheet")
     p.add_argument("--head", type=float, default=0.19, help="head width / height of the person")
     p.add_argument("--bust", type=float, default=0.0)
 
@@ -125,7 +125,7 @@ def main(argv=None):
                            help="draw again a frame that leads with the same leg as the frame half a cycle away")
         p.add_argument("--out", required=True)
         p.add_argument("--height", type=int, default=256, help="sprite height in px, 0 for full size")
-        p.add_argument("--fps", type=int, default=8)
+        p.add_argument("--fps", type=int, default=12, help="GIF speed (frames a second): = --frames walks one cycle a second")
         p.add_argument("--far-shade", type=float, default=0.55,
                        help="far leg brightness against the near leg (1: legs as drawn)")
         _common(p)

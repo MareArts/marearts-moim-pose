@@ -50,7 +50,7 @@ class Fake(BaseHTTPRequestHandler):
             name = g["10"]["inputs"]["image"]
             d = np.asarray(self.uploads[name].convert("L")).astype(np.float64)
             frame = int(re.search(r"_depth_(\d+)", name).group(1))
-            k = 1 + 0.03 * ((frame % 5) - 2)              # by frame, not by call (the reference is cut out too)
+            k = 1 + 0.03 * ((frame % 5) - 3)              # by frame, not by call; over 1.03 the head leaves the canvas
             if (frame, g["22"]["inputs"]["noise_seed"]) in self.same_foot:
                 d = np.where(d > 30, 295 - d, d)          # far leg lit, near leg dark: drawn on the other foot
             shade = (0.35 + 0.65 * d / 255)[..., None] * np.array([90, 120, 200])
@@ -91,15 +91,16 @@ def test_cycle_end_to_end(tmp_path):
     finally:
         srv.shutdown()
     assert all(r["passed"] for r in res["report"]), lines
+    assert len(res["report"]) == 12                         # the default cycle
     tops = []
-    for i in range(8):
+    for i in range(12):
         al = np.asarray(Image.open(tmp_path / "out" / f"walk_{i}.png"))[..., 3] > 128
         ys = np.nonzero(al.any(1))[0]
         tops.append(ys.max() - ys.min())
     assert max(tops) - min(tops) <= 0.02 * max(tops)       # heights within the walk's own 1.2 % wave
     meta = json.loads(open(res["files"]["meta"]).read())
-    assert meta["frames"] == 8 and meta["frame_height"] == 200 and meta["stride_px_per_frame"] > 0
-    assert Image.open(res["files"]["loop"]).n_frames == 8
+    assert meta["frames"] == 12 and meta["frame_height"] == 200 and meta["stride_px_per_frame"] > 0
+    assert Image.open(res["files"]["loop"]).n_frames == 12
     assert Image.open(res["files"]["review"]).width == 960
 
 
@@ -109,7 +110,7 @@ def test_redraw_gets_new_seeds_and_keeps_report(tmp_path):
     try:
         ref = tmp_path / "person.png"
         Image.new("RGB", (300, 700), "white").save(ref)
-        req = MaRequest(reference=ref, out=tmp_path / "out", name="test", height=120)
+        req = MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="test", height=120)
         comfy = MaComfy(f"http://127.0.0.1:{srv.server_port}")
         first = ma_draw_cycle(req, comfy, log=lambda s: None)
         again = ma_draw_cycle(req, comfy, only=[3], log=lambda s: None)
@@ -129,7 +130,7 @@ def test_partial_draw_skips_finish(tmp_path):
         ref = tmp_path / "person.png"
         Image.new("RGB", (300, 700), "white").save(ref)
         lines = []
-        res = ma_draw_cycle(MaRequest(reference=ref, out=tmp_path / "o", name="t"),
+        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "o", name="t"),
                             MaComfy(f"http://127.0.0.1:{srv.server_port}"), only=[0, 4], log=lines.append)
     finally:
         srv.shutdown()
@@ -178,7 +179,7 @@ def test_same_foot_frame_drawn_again(tmp_path):
         ref = tmp_path / "person.png"
         Image.new("RGB", (300, 700), "white").save(ref)
         lines = []
-        res = ma_draw_cycle(MaRequest(reference=ref, out=tmp_path / "out", name="t", height=120, alternate=True),
+        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120, alternate=True),
                             MaComfy(f"http://127.0.0.1:{srv.server_port}"), log=lines.append)
     finally:
         srv.shutdown()
@@ -196,7 +197,7 @@ def test_same_foot_every_seed_fails_in_red(tmp_path):
         ref = tmp_path / "person.png"
         Image.new("RGB", (300, 700), "white").save(ref)
         lines = []
-        res = ma_draw_cycle(MaRequest(reference=ref, out=tmp_path / "out", name="t", height=120, alternate=True,
+        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120, alternate=True,
                                       far_shade=1.0),           # legs as drawn: the same foot shows
                             MaComfy(f"http://127.0.0.1:{srv.server_port}"), log=lines.append)
     finally:
@@ -217,7 +218,7 @@ def test_same_foot_fixed_by_leg_tones_without_redraw(tmp_path):
         ref = tmp_path / "person.png"
         Image.new("RGB", (300, 700), "white").save(ref)
         lines = []
-        res = ma_draw_cycle(MaRequest(reference=ref, out=tmp_path / "out", name="t", height=120),
+        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120),
                             MaComfy(f"http://127.0.0.1:{srv.server_port}"), log=lines.append)
     finally:
         srv.shutdown()

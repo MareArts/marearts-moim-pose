@@ -79,12 +79,12 @@ class MaRequest:
     look: str = ""                       # the person in words: hair, clothes, shoes
     change: str = ""                     # the one thing to draw differently from the picture
     gait: MaGait = field(default_factory=MaGait)
-    frames: int = 8
+    frames: int = 12                   # 8 read as jumps (a hand 112 px a frame); 12 walked smoothly (11-03)
     seed: int = 7
     head: float = 0.19                   # head width / height of the person in the picture
     bust: float = 0.0
     height: int | None = 256             # sprite height in px (None: full size)
-    fps: int = 8
+    fps: int = 12                      # one cycle a second at 12 frames
     far_shade: float = 0.55              # the far leg's brightness against the near one's (1: legs as drawn)
     # draw again a frame on the same foot as the one half a cycle away. Off: the model draws the leg behind darker
     # whichever it is, so new seeds rarely help (0 of 18 on Rin's walk); the leg tones fix what shows.
