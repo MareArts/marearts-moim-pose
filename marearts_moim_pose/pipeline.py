@@ -171,7 +171,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         # drawn again (a person did not like it): never a seed this frame already had, or the same picture comes back
         tried = report.get(i, {}).get("tried", [])
         seeds = [use_seed] if use_seed is not None else [s for s in ma_seeds(req.seed) if s not in tried][:tries]
-        ok, frm, kept = False, None, None
+        ok, frm, kept, alone = False, None, None, False
         if i in starts:
             sd = seeds[0]
             tried = tried + ([sd] if sd not in tried else [])
@@ -204,7 +204,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
                 tried = tried + [sd]
                 ok, said, verdict = draw(i, sd)
                 if ok:
-                    kept = None
+                    kept, alone = None, True
                     break
             if not ok:
                 for p, data in keep.items():
@@ -233,7 +233,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
             log(f"frame {i}: every seed failed, look at {raw / f'{req.kind}_{i}.png'}")
         report[i] = dict(frame=i, seed=sd, tried=tried, passed=ok, checks=ok, measured=said, judge=verdict,
                          seconds=round(time.time() - t0),
-                         engine="video" if i in starts and (ok or kept) else "frames",
+                         engine="video" if i in starts and not alone else "frames",
                          **({"from_frame": frm} if frm is not None else {}))
 
     drawn = list(only) if only is not None else list(range(req.frames))

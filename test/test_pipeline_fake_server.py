@@ -387,6 +387,6 @@ def test_video_frame_kept_when_drawn_on_its_own_fails_too(tmp_path):
     finally:
         srv.shutdown()
     row = next(r for r in res["report"] if r["frame"] == 2)
-    assert not row["passed"] and row["engine"] == "video" and len(row["tried"]) == 13, lines
+    assert not row["passed"] and row["engine"] == "video" and len(row["tried"]) == 13, lines   # the video's, kept
     assert any("kept the video's frame" in s for s in lines)
     assert all(r["passed"] for r in res["report"] if r["frame"] != 2)
