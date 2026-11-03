@@ -2,9 +2,9 @@
 draws them, near limbs lighter; "on the same foot" is the pair drawn with the same leg lit in front."""
 import numpy as np
 
-from marearts_spritestride.checks import ma_alternate_reason, ma_alternates, ma_leg_lead, ma_near_ahead
-from marearts_spritestride.gait import ma_frame_phases, ma_walk_points
-from marearts_spritestride.mannequin import ma_depth
+from marearts_moim_pose.checks import ma_alternate_reason, ma_alternates, ma_leg_lead, ma_near_ahead
+from marearts_moim_pose.gait import ma_frame_phases, ma_walk_points
+from marearts_moim_pose.mannequin import ma_depth
 
 
 def _paint(depth, swap=False, flat=False):

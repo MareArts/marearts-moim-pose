@@ -1,11 +1,11 @@
-"""spritestride — command line.
+"""moim-pose — command line (the old name, spritestride, still works).
 
-  spritestride mannequin --out preview/ --gait lively --kind carry      # the poses only, no server, CPU
-  spritestride person --look "a woman with a red bob, a mustard sweater, blue jeans" --out people/alice   # no picture yet
-  spritestride draw person.png --out out/alice --look "a woman with a red bob, a mustard sweater, blue jeans"
-  spritestride draw person.png --out out/alice --kind carry --judge http://127.0.0.1:8080
-  spritestride finish --out out/alice                                   # lock and sheet again from out/alice/raw
-  spritestride workflows --out workflows/                               # the graphs as UI workflows for ComfyUI
+  moim-pose mannequin --out preview/ --gait lively --kind carry      # the poses only, no server, CPU
+  moim-pose person --look "a woman with a red bob, a mustard sweater, blue jeans" --out people/alice   # no picture yet
+  moim-pose draw person.png --out out/alice --look "a woman with a red bob, a mustard sweater, blue jeans"
+  moim-pose draw person.png --out out/alice --kind carry --judge http://127.0.0.1:8080
+  moim-pose finish --out out/alice                                   # lock and sheet again from out/alice/raw
+  moim-pose workflows --out workflows/                               # the graphs as UI workflows for ComfyUI
 """
 from __future__ import annotations
 
@@ -86,9 +86,9 @@ def cmd_workflows(args):
     info = MaComfy(args.server).object_info()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    graphs = {"spritestride_1_frame_klein_depth": ma_klein_depth_graph("depth.png", "person.png", ma_prompt()),
-              "spritestride_2_cutout_birefnet": ma_cutout_graph("frame.png"),
-              "spritestride_0_new_character_klein": ma_klein_text_graph("a young man with short black hair, a "
+    graphs = {"moim_pose_1_frame_klein_depth": ma_klein_depth_graph("depth.png", "person.png", ma_prompt()),
+              "moim_pose_2_cutout_birefnet": ma_cutout_graph("frame.png"),
+              "moim_pose_0_new_character_klein": ma_klein_text_graph("a young man with short black hair, a "
                                                                          "yellow raincoat, dark jeans, red sneakers")}
     for name, g in graphs.items():
         (out / f"{name}.json").write_text(json.dumps(ma_ui_workflow(g, info), indent=1) + "\n", encoding="utf-8")
@@ -97,7 +97,7 @@ def cmd_workflows(args):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="spritestride", description="Walk-cycle sprites of one person from one picture.")
+    ap = argparse.ArgumentParser(prog="moim-pose", description="Walk-cycle sprites of one person from one picture.")
     ap.add_argument("--version", action="version", version=__version__)
     sub = ap.add_subparsers(dest="cmd", required=True)
 

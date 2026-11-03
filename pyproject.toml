@@ -3,8 +3,8 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "marearts-spritestride"
-version = "0.1.3"
+name = "marearts-moim-pose"
+version = "0.2.0"
 description = "Walk-cycle sprites of one person from one picture: depth mannequin, FLUX.2 [klein] in ComfyUI, checks and a lock"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -23,10 +23,11 @@ judge = ["torch", "transformers>=4.57"]
 test = ["pytest"]
 
 [project.scripts]
-spritestride = "marearts_spritestride.cli:main"
+moim-pose = "marearts_moim_pose.cli:main"
+spritestride = "marearts_moim_pose.cli:main"           # the old name
 
 [project.urls]
 Homepage = "https://www.marearts.com/blogs/open-lab"
 
 [tool.setuptools]
-packages = ["marearts_spritestride"]
+packages = ["marearts_moim_pose", "marearts_spritestride"]   # the second: the old name, kept

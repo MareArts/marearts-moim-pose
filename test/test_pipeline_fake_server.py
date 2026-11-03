@@ -12,9 +12,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import numpy as np
 from PIL import Image
 
-from marearts_spritestride.comfy import MaComfy, ma_ui_workflow
-from marearts_spritestride.judge import ma_verdict
-from marearts_spritestride.pipeline import MaRequest, ma_draw_cycle
+from marearts_moim_pose.comfy import MaComfy, ma_ui_workflow
+from marearts_moim_pose.judge import ma_verdict
+from marearts_moim_pose.pipeline import MaRequest, ma_draw_cycle
 
 
 class Fake(BaseHTTPRequestHandler):
@@ -146,8 +146,8 @@ def test_ui_workflow_links():
 
 
 def test_new_person(tmp_path):
-    from marearts_spritestride.comfy import ma_klein_text_graph
-    from marearts_spritestride.pipeline import ma_new_person
+    from marearts_moim_pose.comfy import ma_klein_text_graph
+    from marearts_moim_pose.pipeline import ma_new_person
     g = ma_klein_text_graph("a man in a yellow raincoat")
     assert "yellow raincoat" in g["5"]["inputs"]["text"] and g["24"]["inputs"]["model"] == ["1", 0]
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
@@ -190,7 +190,7 @@ def test_same_foot_frame_drawn_again(tmp_path):
 
 
 def test_same_foot_every_seed_fails_in_red(tmp_path):
-    from marearts_spritestride.pipeline import ma_seeds
+    from marearts_moim_pose.pipeline import ma_seeds
     srv = _serve({(4, s) for s in ma_seeds(7)})             # frame 4 never comes out right
     try:
         ref = tmp_path / "person.png"
@@ -228,8 +228,8 @@ def test_same_foot_fixed_by_leg_tones_without_redraw(tmp_path):
 
 
 def test_picture_facing_left_is_mirrored(tmp_path):
-    from marearts_spritestride.checks import FACING_SURE, ma_facing
-    from marearts_spritestride.pipeline import ma_face_right
+    from marearts_moim_pose.checks import FACING_SURE, ma_facing
+    from marearts_moim_pose.pipeline import ma_face_right
     im = Image.new("RGB", (300, 700), "white")
     im.paste(Image.new("RGB", (60, 600), (40, 60, 120)), (120, 40))      # a standing figure
     im.paste(Image.new("RGB", (110, 25), (180, 30, 30)), (70, 615))       # its shoes reach left: it faces left

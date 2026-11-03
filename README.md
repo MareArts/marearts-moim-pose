@@ -1,4 +1,4 @@
-# marearts-spritestride
+# marearts-moim-pose
 
 <p align="center">
   <img src="docs/walk-loops.gif" alt="Rin and Otto, each drawn from one sentence, walking and carrying a box in 8-frame loops" width="100%">
@@ -10,11 +10,14 @@ across the cycle, and writes a sprite sheet, GIFs and a small JSON a game can re
 
 It runs on an 8 GB GPU through ComfyUI with FLUX.2 [klein] 4B, and every model it uses is Apache-2.0 or MIT.
 
+Formerly **marearts-spritestride** (renamed in 0.2.0): the `spritestride` command and `import marearts_spritestride`
+still work.
+
 **ComfyUI workflows: [download on MareArts Open Lab](https://www.marearts.com/blogs/open-lab/marearts-spritestride-walk-cycle-sprites-from-one-picture?utm_source=github&utm_medium=readme&utm_campaign=spritestride)**
 
 ## Why frames drift, and what fixes it
 
-| Problem | Why | What spritestride does |
+| Problem | Why | What moim-pose does |
 |---|---|---|
 | The character changes from frame to frame (sleeves, hem, colours) | Each frame is drawn on its own | An **edit** model: the character's own picture goes in as a reference latent, and the words name each piece of clothing |
 | It walks "on the same foot" | In profile the two legs of a pose skeleton lie on one line, so the model cannot tell which is in front | A **depth mannequin** instead of a skeleton: far limbs dark, near limbs bright. Frames half a cycle apart must lead with **different legs** (the lighter leg in front in one, behind in the other); one drawn on the same foot is drawn again. In the finished frames the far leg is drawn darker, as sprite artists do |
@@ -27,7 +30,7 @@ It runs on an 8 GB GPU through ComfyUI with FLUX.2 [klein] 4B, and every model i
 
 ## Examples
 
-Both characters were made from words only (`spritestride person`), then walked and given a box. All 32 frames
+Both characters were made from words only (`moim-pose person`), then walked and given a box. All 32 frames
 passed the 0.1.1 checks at the first seed; four of Rin's frames were drawn again after a look (see below). The
 same-foot check added in 0.1.2 fails 10 of those 32 frames, so a new run draws them again. Both pictures turned out
 to face **left**: drawn over a mannequin walking right, the head and coat faced left on legs walking right, with a
@@ -49,8 +52,8 @@ The loops at the top are the four cycles. Rin's walk as the sprite sheet a game 
 ## Install
 
 ```bash
-pip install git+https://github.com/MareArts/marearts-spritestride            # Python 3.10+
-pip install "marearts-spritestride[judge] @ git+https://github.com/MareArts/marearts-spritestride"   # + the judge
+pip install git+https://github.com/MareArts/marearts-moim-pose            # Python 3.10+
+pip install "marearts-moim-pose[judge] @ git+https://github.com/MareArts/marearts-moim-pose"   # + the judge
 ```
 
 You also need a running [ComfyUI](https://github.com/comfyanonymous/ComfyUI) (0.4x, its own nodes only) with these
@@ -71,27 +74,27 @@ vision model behind an OpenAI-compatible server (llama.cpp, vLLM, Ollama).
 
 The reference picture: the whole character standing, side view, **facing right**, on a plain background. A picture
 facing left is mirrored first: the judge says which way it faces, or without the judge the feet do (the shoes reach
-past the ankles toward the toes); `--facing left|right` says it yourself. `spritestride person` mirrors candidates
+past the ankles toward the toes); `--facing left|right` says it yourself. `moim-pose person` mirrors candidates
 drawn facing left.
 
 ```bash
 # no picture yet? candidates for a new character from words (pick one you like)
-spritestride person --out people/alice \
+moim-pose person --out people/alice \
     --look "a woman with a red-orange bob and round glasses, a mustard knit sweater, rolled blue jeans, black sneakers"
 
 # see the poses first (no GPU, no server)
-spritestride mannequin --out preview/ --gait lively
+moim-pose mannequin --out preview/ --gait lively
 
 # draw a walk; describe the character in words too, it keeps clothes from drifting
-spritestride draw alice.png --out out/alice --gait neat \
+moim-pose draw alice.png --out out/alice --gait neat \
     --look "a woman with a red-orange bob and round glasses, a mustard knit sweater, rolled blue jeans, black sneakers"
 
 # carrying a box, with the judge on a local OpenAI-compatible server
-spritestride draw alice.png --out out/alice --kind carry --judge http://127.0.0.1:8080
+moim-pose draw alice.png --out out/alice --kind carry --judge http://127.0.0.1:8080
 
 # draw frames 2 and 6 again, then lock and sheet the whole cycle
-spritestride draw alice.png --out out/alice --only 2 6
-spritestride finish --out out/alice
+moim-pose draw alice.png --out out/alice --only 2 6
+moim-pose finish --out out/alice
 ```
 
 | Option | Meaning |
@@ -140,8 +143,8 @@ written on top. Draw the frames you do not like again by number; they get seeds 
 keeps every frame's history:
 
 ```bash
-spritestride draw alice.png --out out/alice --only 3 5      # frames 3 and 5 again, then lock and sheets again
-spritestride draw alice.png --out out/alice --only 3 --use-seed 7   # a new try was worse: back to seed 7
+moim-pose draw alice.png --out out/alice --only 3 5      # frames 3 and 5 again, then lock and sheets again
+moim-pose draw alice.png --out out/alice --only 3 --use-seed 7   # a new try was worse: back to seed 7
 ```
 
 A new seed is not always better. Each frame's report row keeps every seed it has tried, so you can go back.
@@ -151,17 +154,17 @@ whole top of the head", "bare legs of smooth skin"), and the next draw keeps it.
 
 ## The graphs in ComfyUI
 
-**Get the ready-made ComfyUI workflows on the [spritestride page of MareArts Open Lab](https://www.marearts.com/blogs/open-lab/marearts-spritestride-walk-cycle-sprites-from-one-picture?utm_source=github&utm_medium=readme&utm_campaign=spritestride)** (free sign-up)
+**Get the ready-made ComfyUI workflows on the [moim-pose page of MareArts Open Lab](https://www.marearts.com/blogs/open-lab/marearts-spritestride-walk-cycle-sprites-from-one-picture?utm_source=github&utm_medium=readme&utm_campaign=spritestride)** (free sign-up)
 — drag a `.json` into ComfyUI: a new character from words, one walk frame
-(image 1 = depth mannequin, image 2 = the character), and the cut-out. `spritestride workflows --out workflows/`
+(image 1 = depth mannequin, image 2 = the character), and the cut-out. `moim-pose workflows --out workflows/`
 also writes them from your own server's node list.
 
 ## In Python
 
 ```python
-from marearts_spritestride import ma_gait, ma_frame_phases, ma_walk_points, ma_depth
-from marearts_spritestride.comfy import MaComfy
-from marearts_spritestride.pipeline import MaRequest, ma_draw_cycle
+from marearts_moim_pose import ma_gait, ma_frame_phases, ma_walk_points, ma_depth
+from marearts_moim_pose.comfy import MaComfy
+from marearts_moim_pose.pipeline import MaRequest, ma_draw_cycle
 
 req = MaRequest(reference="alice.png", out="out/alice", gait=ma_gait("neat"), look="a woman with a red bob, ...")
 ma_draw_cycle(req, MaComfy("http://127.0.0.1:8188"))

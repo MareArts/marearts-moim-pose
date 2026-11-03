@@ -1,10 +1,10 @@
 import numpy as np
 from PIL import Image
 
-from marearts_spritestride.checks import REACH_MAX, ma_arm_reach, ma_box_drift, ma_cutout, ma_extra_limbs, ma_frame_ok
-from marearts_spritestride.comfy import ARMS_HANG, ARMS_NEAR_BACK, ARMS_NEAR_FORWARD, ma_arm_words
-from marearts_spritestride.gait import LANK, LELB, LSHO, LWRI, RANK, ma_frame_phases, ma_gait, ma_walk_points
-from marearts_spritestride.mannequin import NEAR, ma_box_rect, ma_depth, ma_legs_mask, ma_skeleton
+from marearts_moim_pose.checks import REACH_MAX, ma_arm_reach, ma_box_drift, ma_cutout, ma_extra_limbs, ma_frame_ok
+from marearts_moim_pose.comfy import ARMS_HANG, ARMS_NEAR_BACK, ARMS_NEAR_FORWARD, ma_arm_words
+from marearts_moim_pose.gait import LANK, LELB, LSHO, LWRI, RANK, ma_frame_phases, ma_gait, ma_walk_points
+from marearts_moim_pose.mannequin import NEAR, ma_box_rect, ma_depth, ma_legs_mask, ma_skeleton
 
 
 def test_near_leg_is_brighter_than_far():
@@ -99,8 +99,8 @@ def test_cutout_unmixes_white_and_keeps_eye():
 
 
 def test_far_leg_shaded_near_leg_and_body_kept():
-    from marearts_spritestride.gait import NECK_I
-    from marearts_spritestride.lock import ma_far_shade
+    from marearts_moim_pose.gait import NECK_I
+    from marearts_moim_pose.lock import ma_far_shade
     pts = ma_walk_points(0.0)
     dep = ma_depth(pts)
     frame = np.zeros(np.asarray(dep).shape[:2] + (4,), np.uint8)
@@ -114,7 +114,7 @@ def test_far_leg_shaded_near_leg_and_body_kept():
 
 
 def test_judge_asks_where_the_hands_must_be():
-    from marearts_spritestride.judge import ASK_HAND_HERE, MaJudge, ma_hand_box
+    from marearts_moim_pose.judge import ASK_HAND_HERE, MaJudge, ma_hand_box
     pts = ma_walk_points(0.0)
     box = ma_hand_box(pts, LWRI)
     x0, y0, x1, y1 = box

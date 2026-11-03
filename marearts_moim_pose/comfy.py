@@ -85,7 +85,7 @@ def ma_prompt(look: str = "", kind: str = "walk", style: str = STYLE, change: st
 
 
 def ma_klein_depth_graph(depth_image: str, ref_image: str, prompt: str, seed: int = 7, steps: int = 4,
-                         cfg: float = 1.0, width: int = W, height: int = H, prefix: str = "spritestride/frame",
+                         cfg: float = 1.0, width: int = W, height: int = H, prefix: str = "moim-pose/frame",
                          models: dict | None = None) -> dict:
     """One frame: FLUX.2 [klein] 4B edit with the RefControl depth LoRA. The person picture goes in as a reference
     latent, so the face and clothes carry over; the pose comes from the depth mannequin. Distilled model: 4 steps,
@@ -127,9 +127,9 @@ PERSON = ("One character, the whole figure from the top of the head to the shoes
 
 
 def ma_klein_text_graph(look: str, seed: int = 7, steps: int = 4, width: int = W, height: int = H,
-                        style: str = STYLE, prefix: str = "spritestride/person", models: dict | None = None) -> dict:
+                        style: str = STYLE, prefix: str = "moim-pose/person", models: dict | None = None) -> dict:
     """A new character from words: FLUX.2 [klein] text-to-image, standing side view facing right, the picture
-    `spritestride draw` starts from. Output node "17"."""
+    `moim-pose draw` starts from. Output node "17"."""
     m = dict(MODELS, **(models or {}))
     return {
         "1": {"class_type": "UNETLoader", "inputs": {"unet_name": m["unet"], "weight_dtype": "default"}},
@@ -152,7 +152,7 @@ def ma_klein_text_graph(look: str, seed: int = 7, steps: int = 4, width: int = W
     }
 
 
-def ma_cutout_graph(image: str, model: str = MODELS["cutout"], prefix: str = "spritestride/mask") -> dict:
+def ma_cutout_graph(image: str, model: str = MODELS["cutout"], prefix: str = "moim-pose/mask") -> dict:
     """The person's mask of a frame by BiRefNet (ComfyUI's own background-removal nodes). Output node "17"."""
     return {"1": {"class_type": "LoadBackgroundRemovalModel", "inputs": {"bg_removal_name": model}},
             "2": {"class_type": "LoadImage", "inputs": {"image": image}},
@@ -176,7 +176,7 @@ class MaComfy:
     def upload(self, im: Image.Image, name: str) -> str:
         buf = io.BytesIO()
         im.save(buf, "PNG")
-        boundary = "----spritestride" + str(time.time_ns())
+        boundary = "----moim-pose" + str(time.time_ns())
         body = b"".join([
             f"--{boundary}\r\nContent-Disposition: form-data; name=\"overwrite\"\r\n\r\ntrue\r\n".encode(),
             f"--{boundary}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"{name}\"\r\n"

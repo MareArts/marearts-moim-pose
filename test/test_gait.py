@@ -1,6 +1,6 @@
 import numpy as np
 
-from marearts_spritestride.gait import (LANK, LHIP, LWRI, NECK_I, PRESETS, RANK, MaGait, ma_frame_phases, ma_gait,
+from marearts_moim_pose.gait import (LANK, LHIP, LWRI, NECK_I, PRESETS, RANK, MaGait, ma_frame_phases, ma_gait,
                                         ma_height_wave, ma_stride_px, ma_walk_points)
 
 
@@ -60,3 +60,10 @@ def test_height_wave_and_presets():
     assert ma_height_wave(0.0) < ma_height_wave(0.25)
     assert ma_gait("older").step < ma_gait("loose").step
     assert ma_gait("calm", arm=30).arm == 30
+
+
+def test_old_name_still_imports():
+    import marearts_moim_pose
+    import marearts_spritestride
+    from marearts_spritestride.gait import ma_gait as old
+    assert old is ma_gait and marearts_spritestride.__version__ == marearts_moim_pose.__version__

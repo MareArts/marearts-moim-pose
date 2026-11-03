@@ -76,7 +76,7 @@ def ma_review_sheet(frames: list[np.ndarray], report: list[dict], path: Path, ki
     sheet = Image.new("RGB", (cw * cols, top + rows * (ch + foot)), "white")
     d = ImageDraw.Draw(sheet)
     d.text((8, 6), f"Look at: {LOOK_AT.get(kind, LOOK_AT['walk'])}", fill=(30, 30, 30), font=font)
-    d.text((8, 24), f"Draw again: spritestride draw <picture> --out <same folder> --kind {kind} --only <frame numbers>",
+    d.text((8, 24), f"Draw again: moim-pose draw <picture> --out <same folder> --kind {kind} --only <frame numbers>",
            fill=(30, 30, 30), font=font)
     box = ma_crop_box(frames)
     for i, f in enumerate(frames):
