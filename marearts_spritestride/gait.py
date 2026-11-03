@@ -37,7 +37,8 @@ class MaGait:
     elbow: float = 1.0
 
 
-# Walks that read as different people. Arms below ~14 degrees look stuck to the hip once drawn.
+# Walks that read as different people. Arms below ~14 degrees look stuck to the hip once drawn; under a jacket 14
+# was not enough either (the hand stayed by the hip in 3 of 8 frames), 19 was.
 PRESETS = {
     "neat": MaGait(step=0.80, knee=0.85, arm=15, lean=0.5),
     "relaxed": MaGait(step=0.85, knee=0.80, arm=15, lean=1.5),
@@ -46,7 +47,7 @@ PRESETS = {
     "calm": MaGait(step=0.88, knee=0.85, arm=16, lean=0.5),
     "graceful": MaGait(step=0.72, knee=0.80, arm=15, lean=0.0),
     "heavy": MaGait(step=0.95, knee=0.90, arm=20, lean=1.5),
-    "older": MaGait(step=0.62, knee=0.70, arm=14, lean=3.5),
+    "older": MaGait(step=0.62, knee=0.70, arm=19, lean=3.5),
     "energetic": MaGait(step=0.88, knee=1.00, arm=21, lean=0.5),
     "loose": MaGait(step=1.03, knee=0.95, arm=24, lean=1.0),
 }
