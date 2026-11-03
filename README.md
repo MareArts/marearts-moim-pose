@@ -21,7 +21,7 @@ still work.
 |---|---|---|
 | The character changes from frame to frame (sleeves, hem, colours) | Each frame is drawn on its own | An **edit** model: the character's own picture goes in as a reference latent, and the words name each piece of clothing |
 | It walks "on the same foot" | In profile the two legs of a pose skeleton lie on one line, so the model cannot tell which is in front | A **depth mannequin** instead of a skeleton: far limbs dark, near limbs bright. Frames half a cycle apart must lead with **different legs** (the lighter leg in front in one, behind in the other); one drawn on the same foot is drawn again. In the finished frames the far leg is drawn darker, as sprite artists do |
-| A third hand or foot appears, or the arms stand still while the legs walk | The model guesses where the far arm is, and given the same words for every frame it draws one hand before the body and one behind in all of them | Each frame is **told where its arms are** (hanging, near arm forward, near arm back). Measured checks against the mannequin (an arm swung past it fails), and an optional **vision-model judge**: it names each hand and counts them, says yes or no on a small crop **where the mannequin has the hand**, and counts the shoes on the feet. A failed frame is drawn again with another seed |
+| A third hand or foot appears, or the arms stand still while the legs walk | The model guesses where the far arm is, and given the same words for every frame it draws one hand before the body and one behind in all of them | Each frame is **told where its arms are** (hanging, near arm forward, near arm back). Measured checks against the mannequin (an arm swung past it fails), and an optional **vision-model judge**: it names each hand and counts them, says yes or no on a small crop **where the mannequin has the hand**, and counts the shoes on the feet. A failed frame is drawn again with another seed; one whose hand fails every seed (an arm half way back, where the model puts the hand back by the hip as in the picture) is drawn from its neighbour that passed |
 | Height and head size wobble a few percent, and the feet slide | Drawn frames are never exactly the size of the pose | A **lock**: one master frame sets the head and the floor, the height follows the walk's own smooth wave, the legs are laid on the mannequin's legs |
 | The sprite skates across the ground, or the arms move in jumps | A leg turning at an even rate moves the planted foot unevenly, and frames picked to make up for it come at uneven times | The standing leg is solved so the planted foot goes back the **same distance every frame** at even time steps (a body walks at a steady speed), and each arm swings on one smooth wave; that distance is written to the JSON |
 
@@ -32,7 +32,8 @@ still work.
 
 Both characters were made from words only (`moim-pose person`), then walked and given a box, 12 frames a cycle.
 Every frame passed the checks; the judge sent back third hands, hands left by the hip where the mannequin swung the
-arm back, and three frames with a third shoe, and those were drawn again with other seeds. One pair of frames in
+arm back, and three frames with a third shoe, and those were drawn again with other seeds. Two frames of Otto's walk,
+his arm half way back, failed 12 seeds and passed drawn from the frame before or after. One pair of frames in
 each cycle still leads with a faint leg (marked in the review sheet).
 
 | | made with |
