@@ -24,8 +24,8 @@ from PIL import Image
 
 from .checks import FACING_SURE, ma_alternate_reason, ma_alternates, ma_cutout, ma_facing, ma_frame_ok
 from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, STYLE, VIDEO_H, VIDEO_W, WALK, MaComfy, ma_arm_words,
-                    ma_cutout_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt, ma_sharpen_graph,
-                    ma_video_graph)
+                    ma_cutout_graph, ma_hand_fix_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt,
+                    ma_sharpen_graph, ma_video_graph)
 from .gait import LSHO, RSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
 from .judge import ma_hand_box
 from .lock import ma_leg_tones, ma_lock
@@ -134,14 +134,18 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     report = {r["frame"]: r for r in (json.loads(path.read_text(encoding="utf-8")) if path.exists() else [])}
     dnames = {}
 
-    def draw(i, sd, ref=None, start=None):
-        """Frame i at seed sd, drawn (or, given a start picture, made sharp from it), cut out and checked:
-        (passes, what was measured, the judge's answer)."""
+    def draw(i, sd, ref=None, start=None, mask=None):
+        """Frame i at seed sd, drawn (or, given a start picture, made sharp from it; given a mask too, drawn again
+        inside it only), cut out and checked: (passes, what was measured, the judge's answer)."""
         if i not in dnames:
             dnames[i] = comfy.upload(depths[i], f"{req.name}_{req.kind}_depth_{i}.png")
             depths[i].save(raw / f"{req.kind}_{i}_depth.png")
-        graph = (ma_sharpen_graph(dnames[i], ref or ref_name, start, prompts[i], seed=sd) if start else
-                 ma_klein_depth_graph(dnames[i], ref or ref_name, prompts[i], seed=sd))
+        if mask:
+            graph = ma_hand_fix_graph(dnames[i], ref or ref_name, start, mask, prompts[i], seed=sd)
+        elif start:
+            graph = ma_sharpen_graph(dnames[i], ref or ref_name, start, prompts[i], seed=sd)
+        else:
+            graph = ma_klein_depth_graph(dnames[i], ref or ref_name, prompts[i], seed=sd)
         frame = comfy.run(graph, raw / f"{req.kind}_{i}.png")
         fname = comfy.upload(Image.open(frame).convert("RGB"), f"{req.name}_{req.kind}_{i}_frame.png")
         mask = comfy.run(ma_cutout_graph(fname), raw / f"{req.kind}_{i}_mask.png")
@@ -167,11 +171,27 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         tried = report.get(i, {}).get("tried", [])
         seeds = [use_seed] if use_seed is not None else [s for s in ma_seeds(req.seed) if s not in tried][:tries]
         ok, frm = False, None
-        for sd in seeds:
+        if i in starts:
+            sd = seeds[0]
             tried = tried + ([sd] if sd not in tried else [])
-            ok, said, verdict = draw(i, sd, start=starts.get(i))
-            if ok:
-                break
+            ok, said, verdict = draw(i, sd, start=starts[i])
+            if not ok and hands[i]:
+                # the video lost a hand: drawn again where the mannequin has the hands, the rest kept
+                sharp = comfy.upload(Image.open(raw / f"{req.kind}_{i}.png").convert("RGB"),
+                                     f"{req.name}_{req.kind}_sharp_{i}.png")
+                mask = comfy.upload(ma_hands_mask(hands[i]), f"{req.name}_{req.kind}_hands_{i}.png")
+                for sd in [x for x in ma_seeds(req.seed) if x not in tried][:tries]:
+                    tried = tried + [sd]
+                    ok, said, verdict = draw(i, sd, start=sharp, mask=mask)
+                    if ok:
+                        log(f"frame {i} seed {sd}: the hands drawn again, ok")
+                        break
+        else:
+            for sd in seeds:
+                tried = tried + ([sd] if sd not in tried else [])
+                ok, said, verdict = draw(i, sd)
+                if ok:
+                    break
         if not ok and i in starts:
             log(f"frame {i}: no sharp frame from the video passed, drawn on its own")
             for sd in [x for x in ma_seeds(req.seed) if x not in tried][:tries]:
@@ -246,6 +266,17 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         return dict(report=rows, files={})
     files = ma_finish(req, phases, pts, depths)
     return dict(report=json.loads(path.read_text(encoding="utf-8")), files=files)   # with the two-step check
+
+
+def ma_hands_mask(boxes: dict, grow: float = 0.3) -> Image.Image:
+    """White where the hands must be (the judge's crops, grown by `grow` each way, edges soft), black elsewhere."""
+    from PIL import ImageDraw, ImageFilter
+    m = Image.new("RGB", (W, H))
+    d = ImageDraw.Draw(m)
+    for x0, y0, x1, y1 in boxes.values():
+        gx, gy = (x1 - x0) * grow, (y1 - y0) * grow
+        d.rectangle([x0 - gx, y0 - gy, x1 + gx, y1 + gy], fill=(255, 255, 255))
+    return m.filter(ImageFilter.GaussianBlur(8))
 
 
 def ma_video_prompt(look: str, kind: str) -> str:

@@ -322,3 +322,34 @@ def test_cycle_drawn_as_a_video_then_made_sharp(tmp_path):
         assert "video" not in Fake.calls and "sharpen" not in Fake.calls
     finally:
         srv.shutdown()
+
+
+def test_video_frame_that_lost_a_hand_gets_the_hands_drawn_again(tmp_path):
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    class Judge:
+        """Frame 2 made sharp from the video has no near hand; drawn again inside the hand crops it has."""
+        def __init__(self):
+            self.n = 0
+
+        def arms_ok(self, im, kind, hands=None):
+            self.n += 1
+            return (self.n != 4), ("near hand missing" if self.n == 4 else "2; near hand there")
+
+        def feet_ok(self, im):
+            return True, "2"
+
+        def facing(self, im):
+            return "right"
+    try:
+        ref = tmp_path / "person.png"
+        Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
+        lines = []
+        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120),
+                            MaComfy(f"http://127.0.0.1:{srv.server_port}"), judge=Judge(), log=lines.append)
+    finally:
+        srv.shutdown()
+    row = next(r for r in res["report"] if r["frame"] == 2)
+    assert row["passed"] and row["engine"] == "video" and len(row["tried"]) == 2, lines
+    assert any("frame 2" in s and "hands drawn again" in s for s in lines)

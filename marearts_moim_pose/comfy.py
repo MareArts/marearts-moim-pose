@@ -187,6 +187,24 @@ def ma_sharpen_graph(depth_image: str, ref_image: str, start_image: str, prompt:
     return g
 
 
+# The video model loses hands that move fast or pass the hip (an older man's near hand gone in two frames of
+# twelve, both hands in a third); a 30 % pass keeps what is there. Inside the mannequin's hand crops only, the
+# frame graph draws again from 70 % of the noise; the rest of the frame stays as the video drew it (11-03).
+HAND_FIX = 0.7
+
+
+def ma_hand_fix_graph(depth_image: str, ref_image: str, start_image: str, mask_image: str, prompt: str,
+                      seed: int = 7, denoise: float = HAND_FIX, steps: int = 8, models: dict | None = None) -> dict:
+    """ma_sharpen_graph drawing only inside a mask (white where the hands must be). Output node "17"."""
+    g = ma_sharpen_graph(depth_image, ref_image, start_image, prompt, seed=seed, denoise=denoise, steps=steps,
+                         models=models)
+    g["43"] = {"class_type": "LoadImage", "inputs": {"image": mask_image}}
+    g["44"] = {"class_type": "ImageToMask", "inputs": {"image": ["43", 0], "channel": "red"}}
+    g["45"] = {"class_type": "SetLatentNoiseMask", "inputs": {"samples": ["41", 0], "mask": ["44", 0]}}
+    g["25"]["inputs"]["latent_image"] = ["45", 0]
+    return g
+
+
 PERSON = ("One character, the whole figure from the top of the head to the shoes, standing upright, seen exactly from "
           "the side facing right, arms relaxed at the sides, {look}, plain white background, nothing else in the "
           "picture, {style}")
