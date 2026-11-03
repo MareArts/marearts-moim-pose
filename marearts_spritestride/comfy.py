@@ -50,8 +50,11 @@ ARMS_HANG = ("Both arms hang straight down at the sides, the near hand beside th
              "body; no hand in front of the body or behind it. Two hands at most.")
 ARMS_NEAR_FORWARD = ("The near arm swings forward, its hand just in front of the hip; the far arm swings back, its "
                      "hand just behind the back. Two hands at most.")
-ARMS_NEAR_BACK = ("The near arm swings back, its hand just behind the back; the far arm swings forward, its hand just "
-                  "in front of the body. Two hands at most.")
+# Swung back, the near hand stayed by the hip as in image 2 while the sleeve went back (three of eight frames of an
+# older man): the hand is placed in words, and the hip named as where it is not.
+ARMS_NEAR_BACK = ("The near arm swings back, the near hand behind the back of the body, past the back edge of the "
+                  "clothes, nothing beside the hip; the far arm swings forward, its hand just in front of the body. Two "
+                  "hands at most.")
 HANG = 0.35                           # a swing under this share of the widest one: the arms hang
 
 
