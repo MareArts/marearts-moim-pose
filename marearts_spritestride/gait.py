@@ -79,6 +79,28 @@ def ma_leg_angles(t: float) -> tuple[float, float]:
     return thigh, knee
 
 
+def _ankle_ahead(th: float, kn: float) -> float:
+    """The ankle ahead of the hip (share of the height) for a thigh angle and knee bend in degrees."""
+    return THIGH * math.sin(math.radians(th)) + SHIN * math.sin(math.radians(th - kn))
+
+
+def ma_stance_thigh(phase: float, kn: float, g: MaGait) -> float:
+    """Thigh angle of the standing leg at phase (0 to 0.5): the one that puts the ankle where a steady walk has it.
+
+    A body walks at a steady speed, so the planted foot goes back the same distance in each equal time. A thigh
+    turning evenly does not do that (the foot went back 108, 109, then 58 px), and frames picked at uneven times to
+    make up for it moved the arms and the swinging leg in jumps (a hand 28 to 170 px between frames). The knee bends
+    as before; the thigh is solved for the ankle, the same as before at heel strike and toe-off."""
+    k0, k1 = ma_leg_angles(0.0)[1] * g.knee, ma_leg_angles(0.4999)[1] * g.knee
+    x0, x1 = _ankle_ahead(24 * g.step, k0), _ankle_ahead(-24 * g.step, k1)
+    want = x0 + (x1 - x0) * phase / 0.5
+    lo, hi = -60.0, 60.0                                 # the ankle goes forward as the thigh does
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if _ankle_ahead(mid, kn) < want else (lo, mid)
+    return (lo + hi) / 2
+
+
 def ma_walk_points(t: float, gait: MaGait | None = None, carry: bool = False) -> dict[int, tuple[float, float]]:
     """Joint positions (px on the W x H frame) at phase t of the walk.
 
@@ -93,6 +115,8 @@ def ma_walk_points(t: float, gait: MaGait | None = None, carry: bool = False) ->
     for side, phase, hip_i in (("L", t % 1, LHIP), ("R", (t + 0.5) % 1, RHIP)):
         th, kn = ma_leg_angles(phase)
         th, kn = th * g.step, kn * g.knee
+        if phase < 0.5:
+            th = ma_stance_thigh(phase, kn, g)
         a, b = math.radians(th), math.radians(th - kn)
         top = (hip[0] - (0.012 * s if side == "R" else 0), 0.0)
         knee = (top[0] + THIGH * s * math.sin(a), top[1] + THIGH * s * math.cos(a))
@@ -111,10 +135,11 @@ def ma_walk_points(t: float, gait: MaGait | None = None, carry: bool = False) ->
         if carry:
             up, fo = math.radians(20), math.radians(92)
         else:
-            sw = g.arm * math.cos(2 * math.pi * t) * sign
-            if sw < 0:
-                sw *= g.back
-            up, fo = math.radians(sw), math.radians(sw + g.elbow * (12 + max(0, sw) * 0.6))
+            # one smooth wave from arm forward to arm * back behind: scaling only the back half made the arm speed
+            # up as it passed the hip, and the elbow kinked there too
+            c = math.cos(2 * math.pi * t) * sign
+            sw = g.arm * ((1 + g.back) / 2 * c + (1 - g.back) / 2)
+            up, fo = math.radians(sw), math.radians(sw + g.elbow * (12 + 0.6 * g.arm * (1 + c) / 2))
         sh = (neck[0] - (0.014 * s if side == "R" else 0), neck[1] + 0.025 * s)
         el = (sh[0] + UPPER * s * math.sin(up), sh[1] + UPPER * s * math.cos(up))
         wr = (el[0] + FORE * s * math.sin(fo), el[1] + FORE * s * math.cos(fo))
@@ -126,10 +151,10 @@ def ma_walk_points(t: float, gait: MaGait | None = None, carry: bool = False) ->
 
 
 def ma_frame_phases(frames: int = 8, gait: MaGait | None = None) -> list[float]:
-    """Walk phases for the frames, chosen so the planted foot goes back the same distance every frame.
-
-    At even phases (i / frames) the planted ankle moves back unevenly (on the base walk 108, 109, then 58 px), while
-    a game moves the sprite the same distance each frame, so the foot slides. Half the frames per step.
+    """Walk phases for the frames, chosen so the planted foot goes back the same distance every frame (a game moves
+    the sprite the same distance each frame, or the foot slides). The standing leg is solved for a steady foot
+    (ma_stance_thigh), so these come out even (i / frames) and the arms and the swinging leg move evenly too.
+    Half the frames per step.
     """
     half = frames // 2
     ts = np.linspace(0, 0.5, 201)

@@ -1,6 +1,6 @@
 import numpy as np
 
-from marearts_spritestride.gait import (LANK, LHIP, NECK_I, PRESETS, RANK, MaGait, ma_frame_phases, ma_gait,
+from marearts_spritestride.gait import (LANK, LHIP, LWRI, NECK_I, PRESETS, RANK, MaGait, ma_frame_phases, ma_gait,
                                         ma_height_wave, ma_stride_px, ma_walk_points)
 
 
@@ -16,6 +16,16 @@ def test_planted_foot_goes_back_evenly():
         steps = -np.diff(xs)
         assert (steps > 0).all(), name
         assert steps.std() < 0.08 * steps.mean(), (name, steps)
+
+
+def test_frames_even_in_time_so_arms_do_not_jump():
+    for name, g in PRESETS.items():
+        ph = ma_frame_phases(8, g)
+        assert np.allclose(ph, [i / 8 for i in range(8)], atol=0.01), (name, ph)
+    g = ma_gait("lively")
+    pts = [ma_walk_points(t, g) for t in ma_frame_phases(8, g)]
+    hand = [np.hypot(*np.subtract(pts[(i + 1) % 8][LWRI], pts[i][LWRI])) for i in range(8)]
+    assert max(hand) < 3 * min(hand)                       # was 28 to 170 px: a jump every half cycle
 
 
 def test_stride_matches_frames():

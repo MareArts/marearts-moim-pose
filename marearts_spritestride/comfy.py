@@ -55,6 +55,8 @@ ARMS_NEAR_FORWARD = ("The near arm swings forward, its hand just in front of the
 ARMS_NEAR_BACK = ("The near arm swings back, the near hand behind the back of the body, past the back edge of the "
                   "clothes, nothing beside the hip; the far arm swings forward, its hand just in front of the body. Two "
                   "hands at most.")
+# Drawn one by one, a hand was a fist in one frame and open in the next, and the loop flickered at the hands.
+HANDS = "Both hands relaxed, the fingers loosely curled, the wrists straight."
 HANG = 0.35                           # a swing under this share of the widest one: the arms hang
 
 
@@ -77,7 +79,7 @@ def ma_prompt(look: str = "", kind: str = "walk", style: str = STYLE, change: st
     who = f"The same person as image 2, {look} —" if look else "The same person as image 2 —"
     same = f"the same face, hair, clothes and shoes; {change} —" if change else \
         "the same face, hair, clothes and shoes, nothing added —"
-    action, arms = (CARRY, ARMS_CARRY) if kind == "carry" else (WALK, arms or ARMS_WALK)
+    action, arms = (CARRY, ARMS_CARRY) if kind == "carry" else (WALK, f"{arms or ARMS_WALK} {HANDS}")
     return (f"refcontrol, {who} {same} {action}, the mouth closed in a calm, gentle smile, side view facing right, "
             f"plain white background, {style}. {arms}")
 
