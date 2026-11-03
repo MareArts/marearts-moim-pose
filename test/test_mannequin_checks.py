@@ -134,3 +134,21 @@ def test_judge_asks_where_the_hands_must_be():
     ok, said = j.arms_ok(im, "walk", {"near": box, "far": box})
     assert not ok and "near hand missing" in said and len(j.asked) == 2      # stops at the first missing hand
     assert Judge("No.").arms_ok(im, "walk")[0]                                # no boxes: the count alone
+
+
+def test_judge_counts_shoes():
+    from marearts_moim_pose.judge import ASK_FEET, MaJudge
+
+    class Judge(MaJudge):
+        def __init__(self, n):
+            self.n, self.boxes = n, []
+
+        def ask(self, im, text):
+            assert text == ASK_FEET
+            self.boxes.append(im.size)
+            return "red sneaker\n" * self.n + str(self.n)
+    im = Image.new("RGB", (832, 1216), "white")
+    assert Judge(2).feet_ok(im)[0] and not Judge(3).feet_ok(im)[0]
+    j = Judge(2)
+    j.feet_ok(im)
+    assert j.boxes == [(832, 1216 - int(1216 * 0.62))]                    # the legs and feet only

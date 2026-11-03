@@ -14,6 +14,7 @@ sheet and draws the frames they do not like again by number (--only); those get 
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -142,6 +143,9 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         verdict = ""
         if ok and judge is not None:
             ok, verdict = judge.arms_ok(Image.open(frame), req.kind, hands[i])
+            if ok:
+                ok, feet = judge.feet_ok(Image.open(frame))
+                verdict += f"; shoes {(re.findall(r'[0-9]+', feet) or ['?'])[-1]}"
         log(f"frame {i} seed {sd}: {said}" + (f", judge {verdict!r}" if verdict else "") + (" ok" if ok else " again"))
         return ok, said, verdict
 
