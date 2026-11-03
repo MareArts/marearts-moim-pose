@@ -25,7 +25,13 @@ from PIL import Image
 from .gait import H, W
 
 MODELS = dict(unet="flux-2-klein-4b-fp8.safetensors", clip="qwen_3_4b.safetensors", vae="flux2-vae.safetensors",
-              lora="flux2_klein_4b_refcontrol_depth.safetensors", cutout="birefnet.safetensors")
+              lora="flux2_klein_4b_refcontrol_depth.safetensors", cutout="birefnet.safetensors",
+              video="wan2.2_fun_control_5B_bf16.safetensors", video_clip="umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+              video_vae="wan2.2_vae.safetensors")
+# The video model's size: 480 x 704 keeps the face; at 576 x 832 the head turned into the back of a hood (11-03).
+VIDEO_W, VIDEO_H = 480, 704
+VIDEO_NEG = ("blurry, low quality, extra fingers, extra hands, extra arms, extra legs, deformed hands, bad anatomy, "
+             "static picture, camera moving, background, text, walking backwards, three legs")
 
 STYLE = ("highly detailed anime illustration: fine hair strands with glossy highlights, cloth folds, seams and buttons, "
          "two-tone anime shading with soft highlights, crisp clean line art; the eye seen in profile large, open and "
@@ -128,6 +134,59 @@ def ma_klein_depth_graph(depth_image: str, ref_image: str, prompt: str, seed: in
     }
 
 
+def ma_video_graph(depth_images: list[str], first_image: str, prompt: str, seed: int = 7, steps: int = 20,
+                   width: int = VIDEO_W, height: int = VIDEO_H, prefix: str = "moim-pose/video",
+                   models: dict | None = None) -> dict:
+    """A whole cycle at once: Wan 2.2 Fun Control 5B, the depth mannequins as the control video, a drawn frame as
+    the first frame (its ref_image). Drawn one by one the frames each chose their own hands, sleeves and pockets; a
+    video model draws each frame from the one before. The official template's sampling: 20 steps, uni_pc, cfg 5,
+    shift 8. len(depth_images) must be 4k + 1. The output node "17" holds every frame."""
+    m = dict(MODELS, **(models or {}))
+    g = {
+        "1": {"class_type": "UNETLoader", "inputs": {"unet_name": m["video"], "weight_dtype": "fp8_e4m3fn"}},
+        "2": {"class_type": "ModelSamplingSD3", "inputs": {"model": ["1", 0], "shift": 8.0}},
+        "3": {"class_type": "CLIPLoader", "inputs": {"clip_name": m["video_clip"], "type": "wan", "device": "default"}},
+        "4": {"class_type": "VAELoader", "inputs": {"vae_name": m["video_vae"]}},
+        "5": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["3", 0], "text": prompt}},
+        "6": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["3", 0], "text": VIDEO_NEG}},
+        "11": {"class_type": "LoadImage", "inputs": {"image": first_image}},
+    }
+    batch = None
+    for k, name in enumerate(depth_images):
+        g[f"d{k}"] = {"class_type": "LoadImage", "inputs": {"image": name}}
+        if batch is None:
+            batch = [f"d{k}", 0]
+        else:
+            g[f"b{k}"] = {"class_type": "ImageBatch", "inputs": {"image1": batch, "image2": [f"d{k}", 0]}}
+            batch = [f"b{k}", 0]
+    g["20"] = {"class_type": "Wan22FunControlToVideo", "inputs": {
+        "positive": ["5", 0], "negative": ["6", 0], "vae": ["4", 0], "width": width, "height": height,
+        "length": len(depth_images), "batch_size": 1, "ref_image": ["11", 0], "control_video": batch}}
+    g["25"] = {"class_type": "KSampler", "inputs": {
+        "model": ["2", 0], "positive": ["20", 0], "negative": ["20", 1], "latent_image": ["20", 2], "seed": seed,
+        "steps": steps, "cfg": 5.0, "sampler_name": "uni_pc", "scheduler": "simple", "denoise": 1.0}}
+    g["26"] = {"class_type": "VAEDecode", "inputs": {"samples": ["25", 0], "vae": ["4", 0]}}
+    g["17"] = {"class_type": "SaveImage", "inputs": {"images": ["26", 0], "filename_prefix": prefix}}
+    return g
+
+
+# Redrawn whole, a video frame went back to drifting (clothes change 10.8 at 45 %); at 30 % it kept the video's
+# 6.9 and came out as sharp as a drawn frame (11-03).
+SHARPEN = 0.3
+
+
+def ma_sharpen_graph(depth_image: str, ref_image: str, start_image: str, prompt: str, seed: int = 7,
+                     denoise: float = SHARPEN, steps: int = 8, models: dict | None = None) -> dict:
+    """A video frame made sharp by the frame graph: the frame (at full size) is the start, only the last `denoise`
+    of the noise is drawn again, over its mannequin and from the person picture. Output node "17"."""
+    g = ma_klein_depth_graph(depth_image, ref_image, prompt, seed=seed, steps=steps, models=models)
+    g["40"] = {"class_type": "LoadImage", "inputs": {"image": start_image}}
+    g["41"] = {"class_type": "VAEEncode", "inputs": {"pixels": ["40", 0], "vae": ["4", 0]}}
+    g["42"] = {"class_type": "SplitSigmasDenoise", "inputs": {"sigmas": ["21", 0], "denoise": denoise}}
+    g["25"]["inputs"].update(latent_image=["41", 0], sigmas=["42", 1])
+    return g
+
+
 PERSON = ("One character, the whole figure from the top of the head to the shoes, standing upright, seen exactly from "
           "the side facing right, arms relaxed at the sides, {look}, plain white background, nothing else in the "
           "picture, {style}")
@@ -219,6 +278,27 @@ class MaComfy:
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_bytes(r.read())
         return out
+
+    def run_all(self, graph: dict, out_dir: Path, node: str = "17", stem: str = "frame") -> list[Path]:
+        """Queue the graph, wait, save every picture of `node` (a video's frames) as out_dir/stem_00.png ..."""
+        pid = self.call("/prompt", {"prompt": graph})["prompt_id"]
+        while True:
+            h = self.call(f"/history/{pid}").get(pid, {})
+            if h.get("outputs"):
+                break
+            if h.get("status", {}).get("status_str") == "error":
+                raise RuntimeError(json.dumps(h["status"])[:2000])
+            time.sleep(2)
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        paths = []
+        for k, img in enumerate(h["outputs"][node]["images"]):
+            q = urllib.parse.urlencode({"filename": img["filename"], "subfolder": img["subfolder"], "type": "output"})
+            with urllib.request.urlopen(f"{self.url}/view?{q}", timeout=self.timeout) as r:
+                p = out_dir / f"{stem}_{k:02d}.png"
+                p.write_bytes(r.read())
+                paths.append(p)
+        return paths
 
     def object_info(self) -> dict:
         return self.call("/object_info")

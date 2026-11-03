@@ -55,7 +55,7 @@ def _request(args):
                      seed=getattr(args, "seed", 7), head=args.head, bust=args.bust,
                      height=None if args.height == 0 else args.height, fps=args.fps,
                      far_shade=args.far_shade, alternate=getattr(args, "alternate", False),
-                     facing=getattr(args, "facing", "auto"))
+                     facing=getattr(args, "facing", "auto"), engine=getattr(args, "engine", "video"))
 
 
 def cmd_draw(args):
@@ -121,6 +121,9 @@ def main(argv=None):
                            help="with --only: this exact seed (go back to an earlier try; see the report's tried list)")
             p.add_argument("--facing", choices=("auto", "right", "left"), default="auto",
                            help="which way the picture faces (left: mirrored first); auto: the judge, else the feet")
+            p.add_argument("--engine", choices=("video", "frames"), default="video",
+                           help="video: the cycle drawn at once by a video model, then made sharp (one look across "
+                                "the cycle); frames: every frame drawn on its own")
             p.add_argument("--alternate", action="store_true",
                            help="draw again a frame that leads with the same leg as the frame half a cycle away")
         p.add_argument("--out", required=True)

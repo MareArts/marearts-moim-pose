@@ -22,6 +22,7 @@ class Fake(BaseHTTPRequestHandler):
     outputs: dict = {}
     count = [0]
     same_foot: set = set()
+    calls: list = []
 
     def log_message(self, *a):
         pass
@@ -43,10 +44,22 @@ class Fake(BaseHTTPRequestHandler):
         g = json.loads(data)["prompt"]
         self.count[0] += 1
         pid = f"p{self.count[0]}"
+        if g.get("20", {}).get("class_type") == "Wan22FunControlToVideo":   # a video: each mannequin painted
+            self.calls.append("video")
+            frames = []
+            for k in range(g["20"]["inputs"]["length"]):
+                d = np.asarray(self.uploads[g[f"d{k}"]["inputs"]["image"]].convert("L")).astype(np.float64)
+                shade = (0.35 + 0.65 * d / 255)[..., None] * np.array([90, 120, 200])
+                buf = io.BytesIO()
+                Image.fromarray(np.where((d > 30)[..., None], shade, 255).astype(np.uint8)).save(buf, "PNG")
+                frames.append(buf.getvalue())
+            self.outputs[pid] = frames
+            return self._send(json.dumps({"prompt_id": pid}).encode())
         if "10" not in g and "2" not in g:                # a new character from words: a tall figure on white
             out = Image.new("RGB", (832, 1216), "white")
             out.paste(Image.new("RGB", (220, 1000), (200, 90, 60)), (300, 100))
         elif "10" in g:                                   # a frame: the mannequin painted, scaled per frame
+            self.calls.append("sharpen" if "40" in g else "frame")
             name = g["10"]["inputs"]["image"]
             d = np.asarray(self.uploads[name].convert("L")).astype(np.float64)
             frame = int(re.search(r"_depth_(\d+)", name).group(1))
@@ -71,11 +84,15 @@ class Fake(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/history/"):
             pid = self.path.split("/")[-1]
-            body = {pid: {"outputs": {"17": {"images": [{"filename": pid, "subfolder": "", "type": "output"}]}}}}
+            n = len(self.outputs[pid]) if isinstance(self.outputs[pid], list) else 0
+            names = [f"{pid}.{k}" for k in range(n)] if n else [pid]
+            body = {pid: {"outputs": {"17": {"images": [{"filename": f, "subfolder": "", "type": "output"}
+                                                        for f in names]}}}}
             return self._send(json.dumps(body).encode())
         if self.path.startswith("/view"):
-            pid = re.search(r"filename=([^&]+)", self.path).group(1)
-            return self._send(self.outputs[pid], "image/png")
+            name = re.search(r"filename=([^&]+)", self.path).group(1)
+            pid, _, k = name.partition(".")
+            return self._send(self.outputs[pid][int(k)] if k else self.outputs[pid], "image/png")
         self.send_error(404)
 
 
@@ -179,7 +196,8 @@ def test_same_foot_frame_drawn_again(tmp_path):
         ref = tmp_path / "person.png"
         Image.new("RGB", (300, 700), "white").save(ref)
         lines = []
-        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120, alternate=True),
+        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120,
+                                      alternate=True),
                             MaComfy(f"http://127.0.0.1:{srv.server_port}"), log=lines.append)
     finally:
         srv.shutdown()
@@ -197,7 +215,8 @@ def test_same_foot_every_seed_fails_in_red(tmp_path):
         ref = tmp_path / "person.png"
         Image.new("RGB", (300, 700), "white").save(ref)
         lines = []
-        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120, alternate=True,
+        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120,
+                                      alternate=True,
                                       far_shade=1.0),           # legs as drawn: the same foot shows
                             MaComfy(f"http://127.0.0.1:{srv.server_port}"), log=lines.append)
     finally:
@@ -273,10 +292,33 @@ def test_frame_failing_every_seed_is_drawn_from_a_neighbour(tmp_path):
         Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
         lines = []
         res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120),
-                            MaComfy(f"http://127.0.0.1:{srv.server_port}"), judge=Judge(), only=[0, 1, 2], log=lines.append)
+                            MaComfy(f"http://127.0.0.1:{srv.server_port}"), judge=Judge(), only=[0, 1, 2],
+                            log=lines.append)
     finally:
         srv.shutdown()
     row = next(r for r in res["report"] if r["frame"] == 2)
     assert row["passed"] and row["from_frame"] == 1 and len(row["tried"]) == 7, lines
     assert any("drawn from frame 1" in s for s in lines)
     assert "from_frame" not in next(r for r in res["report"] if r["frame"] == 1)
+
+
+def test_cycle_drawn_as_a_video_then_made_sharp(tmp_path):
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    Fake.calls.clear()
+    try:
+        ref = tmp_path / "person.png"
+        Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
+        res = ma_draw_cycle(MaRequest(reference=ref, out=tmp_path / "out", name="t", height=120),
+                            MaComfy(f"http://127.0.0.1:{srv.server_port}"), log=lambda s: None)
+        frames = MaRequest(reference=ref, out=tmp_path).frames
+        assert Fake.calls.count("video") == 1
+        assert Fake.calls.count("sharpen") == frames and Fake.calls.index("video") == 1   # frame 0, then the video
+        assert all(r["engine"] == "video" and r["passed"] for r in res["report"])
+        assert len(list((tmp_path / "out" / "raw" / "video").glob("walk_*.png"))) == 2 * frames + 1
+        Fake.calls.clear()
+        ma_draw_cycle(MaRequest(reference=ref, out=tmp_path / "f", name="t", height=120, engine="frames"),
+                      MaComfy(f"http://127.0.0.1:{srv.server_port}"), log=lambda s: None)
+        assert "video" not in Fake.calls and "sharpen" not in Fake.calls
+    finally:
+        srv.shutdown()
