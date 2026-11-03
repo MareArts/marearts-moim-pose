@@ -31,6 +31,22 @@ TORSO = (0.15, 0.25, 0.85, 0.62)          # shoulders to thighs: hands are small
 ASK_FACING = ("This is a side view of one person. Which way is the person's face pointing: to the left side of the "
               "picture or to the right side? Answer with one word: left or right.")
 HEAD = (0.0, 0.0, 1.0, 0.3)
+# A count says nothing of where the hands are: an older man's near arm stayed by the hip in five of eight frames
+# while the mannequin swung it back, and two hands were still two. Asked yes/no on a small crop where the mannequin
+# has the hand, it said no on the frame the hand had not followed and yes on all 16 hands of a walk that followed
+# (11-03).
+ASK_HAND_HERE = ("Look at the middle of this picture. Is a human hand (fingers, a fist or the back of a hand) there? "
+                 "Answer yes or no.")
+HAND_BOX = 0.06                           # half the crop's side, as a share of the figure's height
+
+
+def ma_hand_box(pts: dict, wrist: int) -> tuple[int, int, int, int]:
+    """The crop where the mannequin has a hand: around the hand's middle, a little past the wrist along the forearm."""
+    from .gait import FIG
+    (ex, ey), (x, y) = pts[wrist - 1], pts[wrist]
+    n = max(1e-6, ((x - ex) ** 2 + (y - ey) ** 2) ** 0.5)
+    x, y, r = x + (x - ex) / n * 0.035 * FIG, y + (y - ey) / n * 0.035 * FIG, HAND_BOX * FIG
+    return int(x - r), int(y - r), int(x + r), int(y + r)
 
 
 def ma_torso(im: Image.Image) -> Image.Image:
@@ -51,10 +67,18 @@ class MaJudge:
     def ask(self, im: Image.Image, text: str) -> str:
         raise NotImplementedError
 
-    def arms_ok(self, im: Image.Image, kind: str) -> tuple[bool, str]:
-        """(frame passes, the model's answer)."""
+    def arms_ok(self, im: Image.Image, kind: str, hands: dict | None = None) -> tuple[bool, str]:
+        """(frame passes, the model's answers). hands: {name: crop box} where the mannequin has a hand that must be
+        drawn there (ma_hand_box)."""
         ans = self.ask(ma_torso(im), ASK_CARRY if kind == "carry" else ASK_WALK)
-        return ma_verdict(ans, kind), ans
+        ok, said = ma_verdict(ans, kind), ans
+        for name, box in (hands or {}).items():
+            if not ok:
+                break
+            here = self.ask(im.convert("RGB").crop(box), ASK_HAND_HERE).strip().lower()
+            ok = here.startswith("yes")
+            said += f"; {name} hand {'there' if ok else 'missing'}"
+        return ok, said
 
     def facing(self, im: Image.Image) -> str:
         """'left', 'right' or '' (no clear answer): which way the person in a standing picture faces."""

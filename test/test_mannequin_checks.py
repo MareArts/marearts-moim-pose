@@ -111,3 +111,26 @@ def test_far_leg_shaded_near_leg_and_body_kept():
     assert at(pts[LANK], -20) == 200                             # near shin as drawn
     assert at(pts[NECK_I], 40) == 200                            # body as drawn
     assert ma_far_shade(frame, dep, 1.0)[..., :3].sum() == frame[..., :3].sum()
+
+
+def test_judge_asks_where_the_hands_must_be():
+    from marearts_spritestride.judge import ASK_HAND_HERE, MaJudge, ma_hand_box
+    pts = ma_walk_points(0.0)
+    box = ma_hand_box(pts, LWRI)
+    x0, y0, x1, y1 = box
+    assert x0 < pts[LWRI][0] < x1 and y0 < pts[LWRI][1] < y1
+
+    class Judge(MaJudge):
+        def __init__(self, here):
+            self.here, self.asked = here, []
+
+        def ask(self, im, text):
+            self.asked.append(text)
+            return self.here if text == ASK_HAND_HERE else "hand behind the body\nhand in front of the coat\n2"
+    im = Image.new("RGB", (832, 1216), "white")
+    ok, said = Judge("Yes.").arms_ok(im, "walk", {"near": box})
+    assert ok and "near hand there" in said
+    j = Judge("No.")
+    ok, said = j.arms_ok(im, "walk", {"near": box, "far": box})
+    assert not ok and "near hand missing" in said and len(j.asked) == 2      # stops at the first missing hand
+    assert Judge("No.").arms_ok(im, "walk")[0]                                # no boxes: the count alone

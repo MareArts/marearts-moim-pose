@@ -22,8 +22,10 @@ import numpy as np
 from PIL import Image
 
 from .checks import FACING_SURE, ma_alternate_reason, ma_alternates, ma_cutout, ma_facing, ma_frame_ok
-from .comfy import MaComfy, ma_arm_words, ma_cutout_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt
-from .gait import LSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
+from .comfy import (ARMS_NEAR_BACK, MaComfy, ma_arm_words, ma_cutout_graph, ma_klein_depth_graph, ma_klein_text_graph,
+                    ma_prompt)
+from .gait import LSHO, RSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
+from .judge import ma_hand_box
 from .lock import ma_leg_tones, ma_lock
 from .mannequin import ma_depth
 from .sheet import ma_loop_gif, ma_meta, ma_review_sheet, ma_sheet, ma_sprites, ma_strip_gif
@@ -115,6 +117,12 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     widest = max(abs(p[LSHO + 1][0] - p[LSHO][0]) for p in pts)
     prompts = [ma_prompt(req.look, req.kind, change=req.change, arms="" if carry else ma_arm_words(p, widest))
                for p in pts]
+    # where a hand must be drawn: the near one always, the far one when it swings out in front of the body
+    hands = [{} for _ in pts]
+    for h, p in zip([] if carry else hands, pts):
+        h["near"] = ma_hand_box(p, LSHO + 2)
+        if ma_arm_words(p, widest) == ARMS_NEAR_BACK:
+            h["far"] = ma_hand_box(p, RSHO + 2)
     tries = len(SEEDS) if judge is not None else 3
     path = out / f"{req.kind}_report.json"
     report = {r["frame"]: r for r in (json.loads(path.read_text(encoding="utf-8")) if path.exists() else [])}
@@ -133,7 +141,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         ok, said = ma_frame_ok(rgb, m, depths[i], pts[i], req.kind)
         verdict = ""
         if ok and judge is not None:
-            ok, verdict = judge.arms_ok(Image.open(frame), req.kind)
+            ok, verdict = judge.arms_ok(Image.open(frame), req.kind, hands[i])
         log(f"frame {i} seed {sd}: {said}" + (f", judge {verdict!r}" if verdict else "") + (" ok" if ok else " again"))
         return ok, said, verdict
 
