@@ -1,11 +1,11 @@
 # marearts-moim-pose
 
 <p align="center">
-  <img src="docs/walk-loops.gif" alt="Rin and Otto, each drawn from one sentence, walking and carrying a box in 8-frame loops" width="100%">
+  <img src="docs/walk-loops.gif" alt="Rin and Otto, each drawn from one sentence, walking and carrying a box in 12-frame loops" width="100%">
 </p>
 
 Walk-cycle sprites of one person from one picture. Give it a side view of a character; it draws the same
-character walking (or carrying a box) in 8 frames that loop, checks every frame, locks height and head size
+character walking (or carrying a box) in 12 frames that loop, checks every frame, locks height and head size
 across the cycle, and writes a sprite sheet, GIFs and a small JSON a game can read.
 
 It runs on an 8 GB GPU through ComfyUI with FLUX.2 [klein] 4B, and every model it uses is Apache-2.0 or MIT.
@@ -21,24 +21,19 @@ still work.
 |---|---|---|
 | The character changes from frame to frame (sleeves, hem, colours) | Each frame is drawn on its own | An **edit** model: the character's own picture goes in as a reference latent, and the words name each piece of clothing |
 | It walks "on the same foot" | In profile the two legs of a pose skeleton lie on one line, so the model cannot tell which is in front | A **depth mannequin** instead of a skeleton: far limbs dark, near limbs bright. Frames half a cycle apart must lead with **different legs** (the lighter leg in front in one, behind in the other); one drawn on the same foot is drawn again. In the finished frames the far leg is drawn darker, as sprite artists do |
-| A third hand appears now and then | The model guesses where the far arm is | Measured checks against the mannequin, and an optional **vision-model judge** on a crop of the torso; a failed frame is drawn again with another seed |
+| A third hand or foot appears, or the arms stand still while the legs walk | The model guesses where the far arm is, and given the same words for every frame it draws one hand before the body and one behind in all of them | Each frame is **told where its arms are** (hanging, near arm forward, near arm back). Measured checks against the mannequin (an arm swung past it fails), and an optional **vision-model judge**: it names each hand and counts them, says yes or no on a small crop **where the mannequin has the hand**, and counts the shoes on the feet. A failed frame is drawn again with another seed |
 | Height and head size wobble a few percent, and the feet slide | Drawn frames are never exactly the size of the pose | A **lock**: one master frame sets the head and the floor, the height follows the walk's own smooth wave, the legs are laid on the mannequin's legs |
-| The sprite skates across the ground in a game | Even time steps move the planted foot unevenly | Frame phases chosen so the planted foot goes back the **same distance every frame**; that distance is written to the JSON |
+| The sprite skates across the ground, or the arms move in jumps | A leg turning at an even rate moves the planted foot unevenly, and frames picked to make up for it come at uneven times | The standing leg is solved so the planted foot goes back the **same distance every frame** at even time steps (a body walks at a steady speed), and each arm swings on one smooth wave; that distance is written to the JSON |
 
 <p align="center"><img src="docs/mannequin.png" alt="Two pose skeletons half a step apart look almost the same; two depth mannequins show the near leg in front, then behind" width="100%"></p>
 <p align="center"><sub>Left: the pose skeleton at two steps half a cycle apart — almost the same shape. Right: the depth mannequin at the same steps — near limbs bright, far ones dark.</sub></p>
 
 ## Examples
 
-Both characters were made from words only (`moim-pose person`), then walked and given a box. All 32 frames
-passed the 0.1.1 checks at the first seed; four of Rin's frames were drawn again after a look (see below). The
-same-foot check added in 0.1.2 fails 10 of those 32 frames, so a new run draws them again. Both pictures turned out
-to face **left**: drawn over a mannequin walking right, the head and coat faced left on legs walking right, with a
-third hand before the coat. 0.1.3 turns such a picture round first (`--facing`), says how each arm swings (the old
-words left the picture's hanging arm in), and the judge now names each hand before it counts (it had missed 5 of 9
-third hands). The model also draws the leg behind darker whichever leg it is, so the two steps looked alike;
-0.1.3 lights the near leg and darkens the far one by the mannequin in every frame, and checks the steps on the
-frames as written. These examples are from before that and are being drawn again.
+Both characters were made from words only (`moim-pose person`), then walked and given a box, 12 frames a cycle.
+Every frame passed the checks; the judge sent back third hands, hands left by the hip where the mannequin swung the
+arm back, and three frames with a third shoe, and those were drawn again with other seeds. One pair of frames in
+each cycle still leads with a faint leg (marked in the review sheet).
 
 | | made with |
 |---|---|
@@ -47,7 +42,7 @@ frames as written. These examples are from before that and are being drawn again
 
 The loops at the top are the four cycles. Rin's walk as the sprite sheet a game reads:
 
-<p align="center"><img src="docs/rin-walk-sheet.png" alt="Rin's walk: the eight frames of the sprite sheet, the far leg darker" width="70%"></p>
+<p align="center"><img src="docs/rin-walk-sheet.png" alt="Rin's walk: the twelve frames of the sprite sheet, the far leg darker" width="70%"></p>
 
 ## Install
 
@@ -99,7 +94,9 @@ moim-pose finish --out out/alice
 
 | Option | Meaning |
 |---|---|
-| `--gait` | `neat relaxed lively upright calm graceful heavy older energetic loose`; or `--step --knee --arm --lean` |
+| `--gait` | `neat relaxed lively upright calm graceful heavy older energetic loose`; or `--step --knee --arm --lean --elbow` |
+| `--frames` | frames a cycle (default 12; 8 makes a smaller sheet but the arms move in bigger jumps) |
+| `--fps` | GIF speed (default 12: one cycle a second at 12 frames) |
 | `--head` | head width / height of the character (0.19 for a big anime head with hair); the mannequin's head follows it |
 | `--bust` | how far the chest stands out in the mannequin (0.13 for a fuller figure); the silhouette comes from the depth |
 | `--change` | the one thing to draw differently from the picture |
@@ -112,7 +109,7 @@ Out, in `--out`:
 
 | File | |
 |---|---|
-| `walk_sheet.png` | 4 x 2 sprite sheet, transparent |
+| `walk_sheet.png` | sprite sheet, 4 frames a row (4 x 3 at 12 frames), transparent |
 | `walk_sheet.json` | frame size, fps, `stride_px_per_frame`: move the sprite that far each frame and the feet stay put |
 | `walk_loop.gif` · `walk_strip.gif` | the loop in place · walking across a strip at its own stride (sliding feet show here) |
 | `walk_0.png` … | full-size locked frames |
@@ -120,7 +117,7 @@ Out, in `--out`:
 | `walk_report.json` | per frame: seed, every seed tried, measured checks, leg lead, judge answer, why it failed, seconds |
 | `raw/` | the drawn frames, masks and mannequins before the lock |
 
-On an RTX 2080 Super (8 GB) a frame takes about half a minute; a cycle of 8 about 4-6 minutes with retries.
+On an RTX 2080 Super (8 GB) a try takes about half a minute to a minute; a cycle of 12 about 10 minutes with retries.
 
 ## It is not 100 % — plan on a look
 
@@ -129,13 +126,13 @@ An image model draws every frame, and now and then it draws something wrong. Mea
 
 | | |
 |---|---|
-| Frames that passed the automatic checks at the first seed | 84 % — the rest at the 2nd to 4th seed |
+| Frames that passed the automatic checks at the first seed | 84 % — the rest at the 2nd to 4th seed. With the 0.2.0 checks (hands where the mannequin has them, shoes) the 48 example frames: 69 % at the first seed, most of the rest by the 5th; two frames of the older man's walk, his arm half way back, took 10 |
 | Walk cycles a person passed at the first look (one review of 12) | 4 of 12 — the others had a leg or a hand drawn oddly, a hat, beard or pocket that changed, a mouth open |
-| What the checks catch | a third arm or leg, a carried box that turns or bobs, a third hand (with the judge), two steps on the same foot (by the legs' light, at the contact frames) |
-| What they do not catch yet | the same foot at mid-stance (legs crossed), legs of one flat colour with no light on them, arms swinging the same way in both steps, an odd hand pose, small changes in clothes or face |
+| What the checks catch | a third arm or leg, an arm swung past the mannequin, a carried box that turns or bobs; with the judge a third hand, a hand missing where the mannequin has it, a third shoe; two steps on the same foot (by the legs' light, at the contact frames) |
+| What they do not catch yet | the same foot at mid-stance (legs crossed), legs of one flat colour with no light on them, an odd hand pose, small changes in clothes or face |
 
 <p align="center"><img src="docs/rin-walk-review.png" alt="The review sheet: every frame with its number, seed and what was measured" width="100%"></p>
-<p align="center"><sub>Rin's walk review sheet after the redraws. Frames 3 and 7 first came out with the face turned toward the viewer; the next seeds turned her further, so frame 3 went back to seed 7 (<code>--use-seed 7</code>).</sub></p>
+<p align="center"><sub>Rin's walk review sheet, 12 frames. Frame 2 is boxed: its lead leg reads faint against frame 8, half a cycle away. The seed line shows the frames the judge sent back (try 2 to 5).</sub></p>
 
 So the tool gives you **drafts that are checked**, not finished art. After every cycle open `walk_review.png`: every
 frame with its number, seed and what was measured, frames that failed the checks boxed in red, and what to look at
