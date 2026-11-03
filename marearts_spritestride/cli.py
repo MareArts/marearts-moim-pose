@@ -54,7 +54,7 @@ def _request(args):
                      change=getattr(args, "change", ""), gait=_gait(args), frames=args.frames,
                      seed=getattr(args, "seed", 7), head=args.head, bust=args.bust,
                      height=None if args.height == 0 else args.height, fps=args.fps,
-                     far_shade=args.far_shade, alternate=not getattr(args, "no_alternate", False),
+                     far_shade=args.far_shade, alternate=getattr(args, "alternate", False),
                      facing=getattr(args, "facing", "auto"))
 
 
@@ -121,13 +121,13 @@ def main(argv=None):
                            help="with --only: this exact seed (go back to an earlier try; see the report's tried list)")
             p.add_argument("--facing", choices=("auto", "right", "left"), default="auto",
                            help="which way the picture faces (left: mirrored first); auto: the judge, else the feet")
-            p.add_argument("--no-alternate", action="store_true",
-                           help="do not draw again a frame on the same foot as the one half a cycle away")
+            p.add_argument("--alternate", action="store_true",
+                           help="draw again a frame that leads with the same leg as the frame half a cycle away")
         p.add_argument("--out", required=True)
         p.add_argument("--height", type=int, default=256, help="sprite height in px, 0 for full size")
         p.add_argument("--fps", type=int, default=8)
         p.add_argument("--far-shade", type=float, default=0.55,
-                       help="the far leg's brightness, so left and right steps differ (1: as drawn)")
+                       help="far leg brightness against the near leg (1: legs as drawn)")
         _common(p)
         p.set_defaults(fn=fn)
 

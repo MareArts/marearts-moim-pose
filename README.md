@@ -31,8 +31,11 @@ Both characters were made from words only (`spritestride person`), then walked a
 passed the 0.1.1 checks at the first seed; four of Rin's frames were drawn again after a look (see below). The
 same-foot check added in 0.1.2 fails 10 of those 32 frames, so a new run draws them again. Both pictures turned out
 to face **left**: drawn over a mannequin walking right, the head and coat faced left on legs walking right, with a
-third hand before the coat. 0.1.3 turns such a picture round first (`--facing`), and the judge now names each hand
-before it counts (it had missed 5 of 9 third hands). These examples are from before that and are being drawn again.
+third hand before the coat. 0.1.3 turns such a picture round first (`--facing`), says how each arm swings (the old
+words left the picture's hanging arm in), and the judge now names each hand before it counts (it had missed 5 of 9
+third hands). The model also draws the leg behind darker whichever leg it is, so the two steps looked alike;
+0.1.3 lights the near leg and darkens the far one by the mannequin in every frame, and checks the steps on the
+frames as written. These examples are from before that and are being drawn again.
 
 | | made with |
 |---|---|
@@ -98,9 +101,9 @@ spritestride finish --out out/alice
 | `--bust` | how far the chest stands out in the mannequin (0.13 for a fuller figure); the silhouette comes from the depth |
 | `--change` | the one thing to draw differently from the picture |
 | `--height` | sprite height in px (default 256, 0 = full 832 x 1216 frame) |
-| `--far-shade` | how bright the far leg stays (default 0.55; 1 = as drawn) |
+| `--far-shade` | how bright the far leg is against the near one (default 0.55; 1 = legs as drawn) |
 | `--facing` | `auto` (default), `right`, or `left` (the picture is mirrored to face right) |
-| `--no-alternate` | keep a frame that leads with the same leg as the frame half a cycle away (by default it is drawn again) |
+| `--alternate` | draw again a frame that leads with the same leg as the frame half a cycle away (off by default: the leg tones fix it, new seeds rarely do) |
 
 Out, in `--out`:
 

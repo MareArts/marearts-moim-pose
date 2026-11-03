@@ -24,7 +24,7 @@ from PIL import Image
 from .checks import FACING_SURE, ma_alternate_reason, ma_alternates, ma_cutout, ma_facing, ma_frame_ok
 from .comfy import MaComfy, ma_cutout_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt
 from .gait import H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
-from .lock import ma_far_shade, ma_lock
+from .lock import ma_leg_tones, ma_lock
 from .mannequin import ma_depth
 from .sheet import ma_loop_gif, ma_meta, ma_review_sheet, ma_sheet, ma_sprites, ma_strip_gif
 
@@ -83,8 +83,10 @@ class MaRequest:
     bust: float = 0.0
     height: int | None = 256             # sprite height in px (None: full size)
     fps: int = 8
-    far_shade: float = 0.55              # the far leg's brightness (1: as drawn)
-    alternate: bool = True               # draw again a frame on the same foot as the one half a cycle away
+    far_shade: float = 0.55              # the far leg's brightness against the near one's (1: legs as drawn)
+    # draw again a frame on the same foot as the one half a cycle away. Off: the model draws the leg behind darker
+    # whichever it is, so new seeds rarely help (0 of 18 on Rin's walk); the leg tones fix what shows.
+    alternate: bool = False
     facing: str = "auto"                 # which way the person picture faces: auto | right | left (mirrored)
 
 
@@ -179,21 +181,13 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
                     p.write_bytes(data)
                 cuts[i] = cut(i)
             r["seconds"] = r.get("seconds", 0) + round(time.time() - t0)
-        alt = ma_alternates([cuts[i] for i in range(req.frames)], depths)
-        for i, r in report.items():
-            if i >= req.frames:
-                continue
-            r["lead"] = alt["lead"][i]
-            r["passed"] = bool(r.get("checks", r.get("passed", True))) and i not in alt["fail"]
-            r["reason"] = ma_alternate_reason(alt, i)
-            if r["reason"]:
-                log(f"frame {i}: {r['reason']} (leg lead {r['lead']:+.0f})")
     rows = [report[k] for k in sorted(report)]
     path.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
     if missing:
         log(f"frames {missing} not drawn yet: no lock or sheet")
         return dict(report=rows, files={})
-    return dict(report=rows, files=ma_finish(req, phases, pts, depths))
+    files = ma_finish(req, phases, pts, depths)
+    return dict(report=json.loads(path.read_text(encoding="utf-8")), files=files)   # with the two-step check
 
 
 def ma_new_person(comfy: MaComfy, look: str, out: Path, count: int = 4, seed: int = 7, log=print) -> list[Path]:
@@ -237,11 +231,21 @@ def ma_finish(req: MaRequest, phases=None, pts=None, depths=None) -> dict:
            for i in range(req.frames)]
     locked = ma_lock(cut, phases, pts, depths)
     if req.far_shade < 1:
-        locked = [ma_far_shade(f, d, req.far_shade) for f, d in zip(locked, depths)]
+        locked = ma_leg_tones(locked, depths, req.far_shade)
     for i, f in enumerate(locked):
         Image.fromarray(f).save(out / f"{req.kind}_{i}.png")
     path = out / f"{req.kind}_report.json"
     report = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    # the two steps, checked on the frames as they are written (after the leg tones), so the sheet says what shows
+    alt = ma_alternates(locked, depths)
+    for r in report:
+        i = r["frame"]
+        if i < req.frames:
+            r["lead"] = alt["lead"][i]
+            r["passed"] = bool(r.get("checks", r.get("passed", True))) and i not in alt["fail"]
+            r["reason"] = ma_alternate_reason(alt, i)
+    if report:
+        path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     review = ma_review_sheet(locked, report, out / f"{req.kind}_review.png", req.kind)
     sprites, k = ma_sprites(locked, req.height)
     stride = ma_stride_px(req.frames, req.gait) * k

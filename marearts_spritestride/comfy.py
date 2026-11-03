@@ -36,7 +36,11 @@ STYLE = ("highly detailed anime illustration: fine hair strands with glossy high
 WALK = "walking, full body"
 CARRY = ("walking, carrying a closed brown cardboard box in both hands in front of the chest, the box seen exactly "
          "from the side so only one flat face of it shows, held level, full body")
-ARMS_WALK = "Only the near arm is seen; the far arm is hidden behind the body. Two hands at most."
+# "the far arm is hidden behind the body" left the picture's own hanging near arm in: a third hand before the coat on
+# every seed; saying how each arm swings, as image 1 shows, drew two (11-03).
+ARMS_WALK = ("The arms swing in the walk: the near arm swings forward or back exactly as the bright arm of image 1, the "
+             "far arm shows only where it swings out past the body. No arm hangs straight down at the side. Two hands "
+             "at most.")
 ARMS_CARRY = ("Both forearms hold the box; the near arm is in front of the box, the far hand hidden behind it. Two "
               "hands at most.")
 

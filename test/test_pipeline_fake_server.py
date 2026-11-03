@@ -178,7 +178,7 @@ def test_same_foot_frame_drawn_again(tmp_path):
         ref = tmp_path / "person.png"
         Image.new("RGB", (300, 700), "white").save(ref)
         lines = []
-        res = ma_draw_cycle(MaRequest(reference=ref, out=tmp_path / "out", name="t", height=120),
+        res = ma_draw_cycle(MaRequest(reference=ref, out=tmp_path / "out", name="t", height=120, alternate=True),
                             MaComfy(f"http://127.0.0.1:{srv.server_port}"), log=lines.append)
     finally:
         srv.shutdown()
@@ -196,7 +196,8 @@ def test_same_foot_every_seed_fails_in_red(tmp_path):
         ref = tmp_path / "person.png"
         Image.new("RGB", (300, 700), "white").save(ref)
         lines = []
-        res = ma_draw_cycle(MaRequest(reference=ref, out=tmp_path / "out", name="t", height=120),
+        res = ma_draw_cycle(MaRequest(reference=ref, out=tmp_path / "out", name="t", height=120, alternate=True,
+                                      far_shade=1.0),           # legs as drawn: the same foot shows
                             MaComfy(f"http://127.0.0.1:{srv.server_port}"), log=lines.append)
     finally:
         srv.shutdown()
@@ -208,6 +209,22 @@ def test_same_foot_every_seed_fails_in_red(tmp_path):
     assert saved[4]["reason"] == "same leg as #0" and not saved[4]["passed"]
     sheet = np.asarray(Image.open(res["files"]["review"]).convert("RGB"))
     assert (np.abs(sheet[54 + 350 + 46 + 2, 4:236] - [214, 40, 40]).sum(-1) < 10).mean() > 0.9   # frame 4 boxed red
+
+
+def test_same_foot_fixed_by_leg_tones_without_redraw(tmp_path):
+    srv = _serve({(4, 7)})                                  # frame 4 drawn with the near leg dark behind
+    try:
+        ref = tmp_path / "person.png"
+        Image.new("RGB", (300, 700), "white").save(ref)
+        lines = []
+        res = ma_draw_cycle(MaRequest(reference=ref, out=tmp_path / "out", name="t", height=120),
+                            MaComfy(f"http://127.0.0.1:{srv.server_port}"), log=lines.append)
+    finally:
+        srv.shutdown()
+    rows = {r["frame"]: r for r in res["report"]}
+    assert rows[4]["tried"] == [7], lines                   # not drawn again
+    assert all(r["passed"] and not r["reason"] for r in rows.values()), lines
+    assert rows[0]["lead"] > 10 and rows[4]["lead"] < -10   # the near leg lit in both: the steps read apart
 
 
 def test_picture_facing_left_is_mirrored(tmp_path):

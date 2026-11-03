@@ -63,6 +63,45 @@ def ma_far_shade(frame: np.ndarray, depth, k: float = 0.55) -> np.ndarray:
     return out
 
 
+def ma_leg_masks(frame: np.ndarray, depth) -> tuple[np.ndarray, np.ndarray]:
+    """Soft masks (0..1) of the near and the far leg of a locked frame, from its mannequin, below mid-thigh."""
+    from scipy import ndimage
+    d = np.asarray(depth.convert("L")).astype(np.float64)
+    ys = np.nonzero(ma_legs_mask(depth).any(1))[0]
+    near = ndimage.binary_dilation(d > 130, iterations=6)
+    far = ndimage.binary_dilation((d > 35) & (d < 115), iterations=6) & ~near    # where they cross: the near one
+    t0, t1 = (ys.min() + r * (ys.max() - ys.min()) for r in (0.60, 0.68))
+    ramp = np.clip((np.arange(len(d)) - t0) / (t1 - t0), 0, 1)[:, None]
+    shift = int(np.nonzero((frame[..., 3] > 128).any(1))[0].max() - ys.max())
+    return tuple(np.roll(ndimage.gaussian_filter(m.astype(np.float64), 3) * ramp, shift, 0) for m in (near, far))
+
+
+def ma_leg_tones(frames: list[np.ndarray], depths: list, k: float = 0.55) -> list[np.ndarray]:
+    """The near leg lit and the far leg dark in every frame, by the mannequin, as sprite artists draw a side walk.
+
+    The model draws the leg behind darker, whichever it is: when the far leg should lead, the near leg comes out
+    dark behind it, and the two steps look alike ("the same foot"); darkening the far leg alone (ma_far_shade) does
+    not undo that. So each leg is brought to one brightness for the whole cycle: the near leg to the lit leg's
+    usual brightness, the far leg to k of it."""
+    lum = [f[..., :3].astype(np.float64) @ np.array([0.299, 0.587, 0.114]) for f in frames]
+    masks = [ma_leg_masks(f, d) for f, d in zip(frames, depths)]
+    means = []
+    for f, L, (n, fa) in zip(frames, lum, masks):
+        a = f[..., 3] > 128
+        means.append(tuple(float(L[(m > 0.8) & a].mean()) if ((m > 0.8) & a).any() else 0.0 for m in (n, fa)))
+    lit = float(np.median([max(m) for m in means]))
+    out = []
+    for f, (n, fa), (ln, lf) in zip(frames, masks, means):
+        if not ln or not lf:
+            out.append(f.copy())
+            continue
+        g = 1 + n * (np.clip(lit / ln, 0.5, 2.2) - 1) + fa * (np.clip(k * lit / lf, 0.3, 2.0) - 1)
+        o = f.copy()
+        o[..., :3] = (f[..., :3] * g[..., None]).clip(0, 255).round().astype(np.uint8)
+        out.append(o)
+    return out
+
+
 def ma_lock(frames: list[np.ndarray], phases: list[float], pts: list[dict], depths: list, master: int = 0,
             align_legs: bool = True) -> list[np.ndarray]:
     """RGBA frames (same size) -> RGBA frames with one height, one head size and an even step."""
