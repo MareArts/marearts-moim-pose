@@ -57,6 +57,11 @@ ARMS_NEAR_BACK = ("The near arm swings back, the near hand behind the back of th
                   "hands at most.")
 # Drawn one by one, a hand was a fist in one frame and open in the next, and the loop flickered at the hands.
 HANDS = "Both hands relaxed, the fingers loosely curled, the wrists straight."
+# Half way back (a 12-frame walk's frames 2 and 10) the hand snapped to the front of the hip, where image 2 has it,
+# on most seeds; it is placed at the back edge of the clothes, not past it.
+ARMS_NEAR_BACK_HALF = ("The near arm swings a little back, the near hand just behind the hip at the back edge of the "
+                       "clothes, not in front of the hip; the far arm swings a little forward. Two hands at most.")
+HALF = 0.75                           # a swing back under this share of the widest one: half way back
 HANG = 0.35                           # a swing under this share of the widest one: the arms hang
 
 
@@ -67,7 +72,9 @@ def ma_arm_words(pts: dict, widest: float) -> str:
     ahead = pts[LELB][0] - pts[LSHO][0]
     if abs(ahead) < HANG * widest:
         return ARMS_HANG
-    return ARMS_NEAR_FORWARD if ahead > 0 else ARMS_NEAR_BACK
+    if ahead > 0:
+        return ARMS_NEAR_FORWARD
+    return ARMS_NEAR_BACK_HALF if -ahead < HALF * widest else ARMS_NEAR_BACK
 
 
 def ma_prompt(look: str = "", kind: str = "walk", style: str = STYLE, change: str = "", arms: str = "") -> str:

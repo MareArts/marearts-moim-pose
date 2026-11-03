@@ -38,19 +38,21 @@ ASK_FACING = ("This is a side view of one person. Which way is the person's face
 HEAD = (0.0, 0.0, 1.0, 0.3)
 # A count says nothing of where the hands are: an older man's near arm stayed by the hip in five of eight frames
 # while the mannequin swung it back, and two hands were still two. Asked yes/no on a small crop where the mannequin
-# has the hand, it said no on the frame the hand had not followed and yes on all 16 hands of a walk that followed
-# (11-03).
+# has the hand, it says no where the hand did not follow (11-03). The crop sits just past the wrist and is 10 % of
+# the figure across: a wider one, further down the forearm, let a hand drawn in front of the hip through when half
+# of it reached in (two frames of a 12-frame walk, the arm half way back: the hand jumped forward and back); on 24
+# frames this one failed exactly those two.
 ASK_HAND_HERE = ("Look at the middle of this picture. Is a human hand (fingers, a fist or the back of a hand) there? "
                  "Answer yes or no.")
-HAND_BOX = 0.06                           # half the crop's side, as a share of the figure's height
+HAND_BOX, HAND_PAST = 0.05, 0.015        # half the crop's side, its centre past the wrist; shares of the figure
 
 
 def ma_hand_box(pts: dict, wrist: int) -> tuple[int, int, int, int]:
-    """The crop where the mannequin has a hand: around the hand's middle, a little past the wrist along the forearm."""
+    """The crop where the mannequin has a hand: just past the wrist along the forearm."""
     from .gait import FIG
     (ex, ey), (x, y) = pts[wrist - 1], pts[wrist]
     n = max(1e-6, ((x - ex) ** 2 + (y - ey) ** 2) ** 0.5)
-    x, y, r = x + (x - ex) / n * 0.035 * FIG, y + (y - ey) / n * 0.035 * FIG, HAND_BOX * FIG
+    x, y, r = x + (x - ex) / n * HAND_PAST * FIG, y + (y - ey) / n * HAND_PAST * FIG, HAND_BOX * FIG
     return int(x - r), int(y - r), int(x + r), int(y + r)
 
 

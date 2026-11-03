@@ -23,7 +23,7 @@ import numpy as np
 from PIL import Image
 
 from .checks import FACING_SURE, ma_alternate_reason, ma_alternates, ma_cutout, ma_facing, ma_frame_ok
-from .comfy import (ARMS_NEAR_BACK, MaComfy, ma_arm_words, ma_cutout_graph, ma_klein_depth_graph, ma_klein_text_graph,
+from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, MaComfy, ma_arm_words, ma_cutout_graph, ma_klein_depth_graph, ma_klein_text_graph,
                     ma_prompt)
 from .gait import LSHO, RSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
 from .judge import ma_hand_box
@@ -122,7 +122,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     hands = [{} for _ in pts]
     for h, p in zip([] if carry else hands, pts):
         h["near"] = ma_hand_box(p, LSHO + 2)
-        if ma_arm_words(p, widest) == ARMS_NEAR_BACK:
+        if ma_arm_words(p, widest) in (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF):
             h["far"] = ma_hand_box(p, RSHO + 2)
     tries = len(SEEDS) if judge is not None else 3
     path = out / f"{req.kind}_report.json"
