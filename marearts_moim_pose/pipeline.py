@@ -23,14 +23,15 @@ import numpy as np
 from PIL import Image
 
 from .checks import FACING_SURE, ma_alternate_reason, ma_alternates, ma_cutout, ma_facing, ma_frame_ok
-from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, MaComfy, ma_arm_words, ma_cutout_graph, ma_klein_depth_graph, ma_klein_text_graph,
-                    ma_prompt)
+from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, MaComfy, ma_arm_words, ma_cutout_graph,
+                    ma_klein_depth_graph, ma_klein_text_graph, ma_prompt)
 from .gait import LSHO, RSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
 from .judge import ma_hand_box
 from .lock import ma_leg_tones, ma_lock
 from .mannequin import ma_depth
 from .sheet import ma_loop_gif, ma_meta, ma_review_sheet, ma_sheet, ma_sprites, ma_strip_gif
 
+NEIGHBOUR_TRIES = 3     # an older man's arm half way back: 12 seeds failed from his picture, 1 in 3 from frame 1
 SEEDS = (0, 4, 16, 23, 42, 61)          # offsets from the seed; about one frame in twenty needs a second try
 
 
@@ -129,12 +130,13 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     report = {r["frame"]: r for r in (json.loads(path.read_text(encoding="utf-8")) if path.exists() else [])}
     dnames = {}
 
-    def draw(i, sd):
+    def draw(i, sd, ref=None):
         """Frame i at seed sd, drawn, cut out and checked: (passes, what was measured, the judge's answer)."""
         if i not in dnames:
             dnames[i] = comfy.upload(depths[i], f"{req.name}_{req.kind}_depth_{i}.png")
             depths[i].save(raw / f"{req.kind}_{i}_depth.png")
-        frame = comfy.run(ma_klein_depth_graph(dnames[i], ref_name, prompts[i], seed=sd), raw / f"{req.kind}_{i}.png")
+        frame = comfy.run(ma_klein_depth_graph(dnames[i], ref or ref_name, prompts[i], seed=sd),
+                          raw / f"{req.kind}_{i}.png")
         fname = comfy.upload(Image.open(frame).convert("RGB"), f"{req.name}_{req.kind}_{i}_frame.png")
         mask = comfy.run(ma_cutout_graph(fname), raw / f"{req.kind}_{i}_mask.png")
         rgb = np.asarray(Image.open(frame).convert("RGB"))
@@ -158,15 +160,34 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         # drawn again (a person did not like it): never a seed this frame already had, or the same picture comes back
         tried = report.get(i, {}).get("tried", [])
         seeds = [use_seed] if use_seed is not None else [s for s in ma_seeds(req.seed) if s not in tried][:tries]
+        ok, frm = False, None
         for sd in seeds:
             tried = tried + ([sd] if sd not in tried else [])
             ok, said, verdict = draw(i, sd)
             if ok:
                 break
-        else:
+        # every seed drew the hand where the standing picture has it (an arm half way back): the frame is drawn from
+        # a neighbour that passed instead, whose arm is already near; one step only, so the look does not drift
+        if not ok and judge is not None and use_seed is None:
+            for nb in ((i - 1) % req.frames, (i + 1) % req.frames):
+                row = report.get(nb, {})
+                if not row.get("passed") or row.get("from_frame") is not None or nb == i:
+                    continue
+                nref = comfy.upload(Image.open(raw / f"{req.kind}_{nb}.png").convert("RGB"),
+                                    f"{req.name}_{req.kind}_ref_{nb}.png")
+                for sd in [x for x in ma_seeds(req.seed) if x not in tried][:NEIGHBOUR_TRIES]:
+                    tried = tried + [sd]
+                    ok, said, verdict = draw(i, sd, nref)
+                    if ok:
+                        frm = nb
+                        log(f"frame {i} seed {sd}: drawn from frame {nb}, ok")
+                        break
+                if ok:
+                    break
+        if not ok:
             log(f"frame {i}: every seed failed, look at {raw / f'{req.kind}_{i}.png'}")
         report[i] = dict(frame=i, seed=sd, tried=tried, passed=ok, checks=ok, measured=said, judge=verdict,
-                         seconds=round(time.time() - t0))
+                         seconds=round(time.time() - t0), **({"from_frame": frm} if frm is not None else {}))
     missing = [i for i in range(req.frames) if not (raw / f"{req.kind}_{i}.png").exists()]
     if not missing and req.alternate:
         cuts = {i: cut(i) for i in range(req.frames)}

@@ -246,3 +246,37 @@ def test_picture_facing_left_is_mirrored(tmp_path):
         def facing(self, im):
             return "right"
     assert ma_face_right(im, judge=Judge()) is im                        # the judge's answer wins over the feet
+
+
+def test_frame_failing_every_seed_is_drawn_from_a_neighbour(tmp_path):
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    class Judge:
+        """Frame 2's hand is never where the mannequin has it, unless frame 1 is the picture it was drawn from."""
+        def __init__(self):
+            self.calls = []
+
+        def arms_ok(self, im, kind, hands=None):
+            self.calls.append(im.size)
+            n = len(self.calls)
+            bad = 3 <= n <= 8                                    # frame 2's six seeds from the standing picture
+            return (not bad), ("near hand missing" if bad else "2; near hand there")
+
+        def feet_ok(self, im):
+            return True, "2"
+
+        def facing(self, im):
+            return "right"
+    try:
+        ref = tmp_path / "person.png"
+        Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
+        lines = []
+        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120),
+                            MaComfy(f"http://127.0.0.1:{srv.server_port}"), judge=Judge(), only=[0, 1, 2], log=lines.append)
+    finally:
+        srv.shutdown()
+    row = next(r for r in res["report"] if r["frame"] == 2)
+    assert row["passed"] and row["from_frame"] == 1 and len(row["tried"]) == 7, lines
+    assert any("drawn from frame 1" in s for s in lines)
+    assert "from_frame" not in next(r for r in res["report"] if r["frame"] == 1)
