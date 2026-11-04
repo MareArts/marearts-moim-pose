@@ -63,6 +63,8 @@ class Fake(BaseHTTPRequestHandler):
             out.paste(Image.new("RGB", (220, 1000), (200, 90, 60)), (300, 100))
         elif "10" in g:                                   # a frame: the mannequin painted, scaled per frame
             self.calls.append("sharpen" if "40" in g else "frame")
+            if "40" in g:                                 # what the frame is drawn from
+                self.calls.append(("ref", g["11"]["inputs"]["image"]))
             if "45" in g:                                 # inside a mask: how much of the noise
                 self.calls.append(("fix", next(v["inputs"]["denoise"] for v in g.values()
                                                if "denoise" in v.get("inputs", {}))))
@@ -323,10 +325,14 @@ def test_cycle_drawn_as_a_video_then_made_sharp(tmp_path):
         res = ma_draw_cycle(MaRequest(reference=ref, out=tmp_path / "out", name="t", height=120),
                             MaComfy(f"http://127.0.0.1:{srv.server_port}"), log=lambda s: None)
         frames = MaRequest(reference=ref, out=tmp_path).frames
-        assert Fake.calls.count("video") == 1
-        assert Fake.calls.count("sharpen") == frames
+        assert Fake.calls.count("video") == 2                            # again from its own frame 0 made sharp
+        assert Fake.calls.count("sharpen") == frames + 1
         assert Fake.calls[:4] == ["frame", "free", "video", "free"]      # frame 0, then the video on a freed card
+        assert Fake.calls[4:7] == ["sharpen", ("ref", "t_ref.png"), "free"]
         assert all(r["engine"] == "video" and r["passed"] for r in res["report"])
+        after = Fake.calls[len(Fake.calls) - Fake.calls[::-1].index("video"):]
+        refs = {c[1] for c in after if isinstance(c, tuple) and c[0] == "ref"}
+        assert refs == {"t_walk_look.png"}                               # every frame from frame 0's look
         assert len(list((tmp_path / "out" / "raw" / "video").glob("walk_*.png"))) == 2 * frames + 1
         Fake.calls.clear()
         ma_draw_cycle(MaRequest(reference=ref, out=tmp_path / "f", name="t", height=120, engine="frames"),
@@ -347,7 +353,7 @@ def test_video_frame_that_lost_a_hand_gets_the_hands_drawn_again(tmp_path):
 
         def arms_ok(self, im, kind, hands=None):
             self.n += 1
-            return (self.n != 4), ("near hand missing" if self.n == 4 else "2; near hand there")
+            return (self.n != 5), ("near hand missing" if self.n == 5 else "2; near hand there")
 
         def feet_ok(self, im):
             return True, "2"
@@ -392,7 +398,7 @@ def test_video_frame_with_a_hand_too_many_gets_it_drawn_over(tmp_path):
 
         def arms_ok(self, im, kind, hands=None):
             self.n += 1
-            if self.n == 4:
+            if self.n == 5:
                 return False, "hands 3 at [150, 600, 200, 650], [380, 640, 430, 700], [600, 600, 650, 650]"
             return True, "hands 2; near hand there"
 
@@ -425,7 +431,7 @@ def test_video_frame_kept_when_drawn_on_its_own_fails_too(tmp_path):
 
         def arms_ok(self, im, kind, hands=None):
             self.n += 1
-            bad = 4 <= self.n <= 16
+            bad = 5 <= self.n <= 17
             return (not bad), ("near hand missing" if bad else "2; near hand there")
 
         def feet_ok(self, im):
@@ -464,7 +470,7 @@ def test_video_frame_of_another_person_is_drawn_on_its_own(tmp_path):
 
         def head_likeness(self, im, ref):
             self.n += 1
-            return 0.8 if self.n == 4 else 0.97                 # frame 0, 0 sharp, 1, then frame 2 made sharp
+            return 0.8 if self.n == 5 else 0.97                 # frame 0, 0 sharp twice, 1, then frame 2 sharp
 
         def facing(self, im):
             return "right"

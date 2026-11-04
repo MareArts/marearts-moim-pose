@@ -184,7 +184,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         if i in starts:
             sd = seeds[0]
             tried = tried + ([sd] if sd not in tried else [])
-            ok, said, verdict = draw(i, sd, start=starts[i])
+            ok, said, verdict = draw(i, sd, look, start=starts[i])
             # the video lost a hand: drawn again where the mannequin has the hands; it drew one too many: drawn over
             # where that one is. The rest of the frame is kept either way.
             fix, dz = ({}, HAND_FIX) if ok else (hands[i], HAND_FIX) if hands[i] and "missing" in verdict else \
@@ -195,7 +195,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
                 mask = comfy.upload(ma_hands_mask(fix), f"{req.name}_{req.kind}_hands_{i}.png")
                 for sd in [x for x in ma_seeds(req.seed) if x not in tried][:tries]:
                     tried = tried + [sd]
-                    ok, said, verdict = draw(i, sd, start=sharp, mask=mask, denoise=dz)
+                    ok, said, verdict = draw(i, sd, look, start=sharp, mask=mask, denoise=dz)
                     if ok:
                         log(f"frame {i} seed {sd}: the hands drawn again, ok")
                         break
@@ -252,11 +252,22 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
                          **({"from_frame": frm} if frm is not None else {}))
 
     drawn = list(only) if only is not None else list(range(req.frames))
-    starts = {}
+    starts, look = {}, None
     if req.engine == "video" and only is None and use_seed is None:
         draw_frame(0)
         if report[0]["passed"]:
             starts = ma_video_starts(req, comfy, depths, raw, log)
+            # the cycle again from the video's own frame 0 made sharp: from frame 0 as drawn alone the video drew a
+            # round pouch on an older man's hip in every frame (his drawing had none), and each frame made sharp
+            # read it as a pocket, a flap or the hem; from its own frame 0 it kept his jacket as it was (11-04)
+            draw_frame(0)
+            if report[0]["passed"]:
+                starts = ma_video_starts(req, comfy, depths, raw, log)
+            # the look of the whole cycle is frame 0's from here on: made sharp, or a hand drawn again, a frame is
+            # drawn from frame 0 and not from the standing picture, or each one reads the hem, pockets and cuffs its
+            # own way. An older man's walk changed at the hem by 24 between frames drawn from his picture, 22 from
+            # frame 0 (the video alone 20); frames with a hand drawn again from his picture by 45-66 (11-04)
+            look = comfy.upload(Image.open(raw / f"{req.kind}_0.png").convert("RGB"), f"{req.name}_{req.kind}_look.png")
     for i in drawn:
         draw_frame(i)
     missing = [i for i in range(req.frames) if not (raw / f"{req.kind}_{i}.png").exists()]
