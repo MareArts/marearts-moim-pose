@@ -187,12 +187,14 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
             ok, said, verdict = draw(i, sd, look, start=starts[i])
             # the video lost a hand: drawn again where the mannequin has the hands; it drew one too many: drawn over
             # where that one is. The rest of the frame is kept either way.
-            fix, dz = ({}, HAND_FIX) if ok else (hands[i], HAND_FIX) if hands[i] and "missing" in verdict else \
-                (ma_extra_hands(ma_hand_boxes(verdict), pts[i]), EXTRA_FIX)
+            # a lost hand is drawn in the mannequin's hand crop alone: grown by 30 % it took in the hem and the pocket
+            # by the hip, and an older man's frame came out with another hem than its neighbours (11-04)
+            fix, dz, grow = ({}, HAND_FIX, 0.0) if ok else (hands[i], HAND_FIX, 0.0) if hands[i] and "missing" in \
+                verdict else (ma_extra_hands(ma_hand_boxes(verdict), pts[i]), EXTRA_FIX, 0.3)
             if fix:
                 sharp = comfy.upload(Image.open(raw / f"{req.kind}_{i}.png").convert("RGB"),
                                      f"{req.name}_{req.kind}_sharp_{i}.png")
-                mask = comfy.upload(ma_hands_mask(fix), f"{req.name}_{req.kind}_hands_{i}.png")
+                mask = comfy.upload(ma_hands_mask(fix, grow), f"{req.name}_{req.kind}_hands_{i}.png")
                 for sd in [x for x in ma_seeds(req.seed) if x not in tried][:tries]:
                     tried = tried + [sd]
                     ok, said, verdict = draw(i, sd, look, start=sharp, mask=mask, denoise=dz)
