@@ -169,6 +169,14 @@ def test_clothes_change_between_frames():
 def test_head_likeness_fails_another_person():
     from marearts_moim_pose.judge import HEAD_MIN, MaJudge, ma_head
     im = Image.new("RGB", (832, 1216), "white")
-    assert ma_head(im).size == (int(832 * 0.85) - int(832 * 0.25), int(1216 * 0.30) - int(1216 * 0.03))
+    assert ma_head(im).size == (int(832 * 0.85) - int(832 * 0.25), int(1216 * 0.30) - int(1216 * 0.03))   # blank
+    from PIL import ImageDraw
+    fig = im.copy()
+    ImageDraw.Draw(fig).ellipse([380, 100, 460, 180], fill="black")            # a head
+    ImageDraw.Draw(fig).rectangle([360, 180, 480, 900], fill="grey")           # a body
+    ImageDraw.Draw(fig).rectangle([480, 400, 600, 500], fill="brown")          # a box, below the head
+    x0, y0, x1, y1 = ma_head(fig).getbbox() and (0, 0, 0, 0)
+    head = ma_head(fig)
+    assert head.size[0] == head.size[1] and head.size[0] < 200                  # the head only, not the box
     assert MaJudge().head_likeness(im, im) is None                 # a judge without it says nothing
     assert 0.8 < HEAD_MIN < 0.95

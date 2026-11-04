@@ -111,16 +111,30 @@ class MaJudge:
 
 # A video model can change the person while every hand and shoe is right: an older man's flat cap lost its brim
 # and his short hair grew to the neck in 9 frames of 12. The VLM saw a flat cap and a profile in all of them; head
-# features did not: 0.81-0.86 against his picture, 0.97-0.99 for frames that were him (a girl drawn the same way:
-# 0.90-0.95), 11-04.
-HEAD_MIN = 0.88
+# features did not. On the top 14 % of the figure (hat, hair, the top of the face) against his picture those 9 came
+# to 0.87-0.90 and 63 frames that were the person (him and a girl, walking and with a box, drawn either way) to
+# 0.93-0.98; a bigger crop took in the collar or a carried box and the two overlapped (11-04).
+HEAD_MIN = 0.915
 HEAD_CROP = (0.25, 0.03, 0.85, 0.30)
 
 
-def ma_head(im: Image.Image) -> Image.Image:
-    w, h = im.size
-    x0, y0, x1, y1 = HEAD_CROP
-    return im.convert("RGB").crop((int(w * x0), int(h * y0), int(w * x1), int(h * y1)))
+def ma_head(im: Image.Image, share: float = 0.14) -> Image.Image:
+    """The head of the person on a light background: the top `share` of the figure, square, around the drawn
+    pixels in those rows (a fixed crop of the frame took in a carried box and missed a head drawn lower)."""
+    import numpy as np
+    rgb = im.convert("RGB")
+    a = np.asarray(rgb).astype(int)
+    ink = (a < 235).any(-1)
+    rows = np.nonzero(ink.any(1))[0]
+    if not len(rows):
+        w, h = im.size
+        x0, y0, x1, y1 = HEAD_CROP
+        return rgb.crop((int(w * x0), int(h * y0), int(w * x1), int(h * y1)))
+    top, h = rows.min(), rows.max() - rows.min()
+    y1 = top + max(1, int(share * h))
+    cols = np.nonzero(ink[top:y1].any(0))[0]
+    cx, side = (cols.min() + cols.max()) / 2, max(cols.max() - cols.min(), y1 - top)
+    return rgb.crop((int(cx - side / 2), int(top), int(cx + side / 2), int(top + side)))
 
 
 class MaLikeness:
