@@ -103,6 +103,11 @@ def ma_leg_masks(frame: np.ndarray, depth, pts: dict | None = None) -> tuple[np.
         up = np.roll(m, shift, 0) & alpha & rows[:, None] & same
         if k == 1:
             up &= ~np.roll(thighs[0], shift, 0)
+        # only what joins the lower leg without crossing a line: a white skirt matched pale skin in colour and took a
+        # grey wedge of shade (11-05); its hem's outline keeps it apart
+        lab, _ = ndimage.label(up | sure)
+        keep = np.unique(lab[sure])
+        up &= np.isin(lab, keep[keep > 0])
         soft[k] = np.maximum(soft[k], ndimage.gaussian_filter(up.astype(np.float64), 1.5))
     return tuple(soft)
 
