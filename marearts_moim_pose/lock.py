@@ -63,7 +63,7 @@ def ma_far_shade(frame: np.ndarray, depth, k: float = 0.55) -> np.ndarray:
     return out
 
 
-def ma_leg_masks(frame: np.ndarray, depth) -> tuple[np.ndarray, np.ndarray]:
+def ma_leg_masks(frame: np.ndarray, depth, pts: dict | None = None) -> tuple[np.ndarray, np.ndarray]:
     """Soft masks (0..1) of the near and the far leg of a locked frame, from its mannequin, below mid-thigh."""
     from scipy import ndimage
     d = np.asarray(depth.convert("L")).astype(np.float64)
@@ -73,10 +73,41 @@ def ma_leg_masks(frame: np.ndarray, depth) -> tuple[np.ndarray, np.ndarray]:
     t0, t1 = (ys.min() + r * (ys.max() - ys.min()) for r in (0.60, 0.68))
     ramp = np.clip((np.arange(len(d)) - t0) / (t1 - t0), 0, 1)[:, None]
     shift = int(np.nonzero((frame[..., 3] > 128).any(1))[0].max() - ys.max())
-    return tuple(np.roll(ndimage.gaussian_filter(m.astype(np.float64), 3) * ramp, shift, 0) for m in (near, far))
+    soft = [np.roll(ndimage.gaussian_filter(m.astype(np.float64), 3) * ramp, shift, 0) for m in (near, far)]
+    # Above mid-thigh the masks faded out, and a far leg shaded below the knee only showed as a dark smudge on bare
+    # skin (a girl in shorts, 11-04). Up to the hip each leg takes, inside its own mannequin limb, the pixels of the
+    # colour of its own lower part (the same cloth or skin), so the shade runs evenly to the hem and stops there.
+    rgb = ndimage.uniform_filter(frame[..., :3].astype(np.float64), size=(3, 3, 1))
+    lum = rgb.sum(-1) + 1
+    chroma = rgb[..., :2] / lum[..., None]
+    alpha = frame[..., 3] > 128
+    hip = int(ys.min() + 0.40 * (ys.max() - ys.min())) + shift
+    rows = np.zeros(len(d), bool)
+    rows[max(0, hip):int(t1) + shift] = True
+    thighs = (near, far)
+    if pts is not None:                         # the thighs alone: the mannequin's near arm and body are as bright
+        from PIL import Image, ImageDraw
+        from .gait import FIG, LHIP, RHIP
+        thighs = []
+        for hip_i in (LHIP, RHIP):
+            im = Image.new("L", (d.shape[1], d.shape[0]))
+            ImageDraw.Draw(im).line([pts[hip_i], pts[hip_i + 1]], fill=255, width=int(0.13 * FIG))
+            thighs.append(np.asarray(im) > 0)
+        thighs[1] = thighs[1] & ~thighs[0]
+    for k, m in enumerate(thighs):
+        sure = (soft[k] > 0.8) & alpha
+        if sure.sum() < 50:
+            continue
+        c0, l0 = np.median(chroma[sure], 0), np.median(lum[sure])
+        same = (np.abs(chroma - c0).max(-1) < 0.035) & (lum > 0.45 * l0) & (lum < 1.6 * l0)
+        up = np.roll(m, shift, 0) & alpha & rows[:, None] & same
+        if k == 1:
+            up &= ~np.roll(thighs[0], shift, 0)
+        soft[k] = np.maximum(soft[k], ndimage.gaussian_filter(up.astype(np.float64), 1.5))
+    return tuple(soft)
 
 
-def ma_leg_tones(frames: list[np.ndarray], depths: list, k: float = 0.55) -> list[np.ndarray]:
+def ma_leg_tones(frames: list[np.ndarray], depths: list, k: float = 0.55, pts: list | None = None) -> list[np.ndarray]:
     """The near leg lit and the far leg dark in every frame, by the mannequin, as sprite artists draw a side walk.
 
     The model draws the leg behind darker, whichever it is: when the far leg should lead, the near leg comes out
@@ -84,7 +115,7 @@ def ma_leg_tones(frames: list[np.ndarray], depths: list, k: float = 0.55) -> lis
     not undo that. So each leg is brought to one brightness for the whole cycle: the near leg to the lit leg's
     usual brightness, the far leg to k of it."""
     lum = [f[..., :3].astype(np.float64) @ np.array([0.299, 0.587, 0.114]) for f in frames]
-    masks = [ma_leg_masks(f, d) for f, d in zip(frames, depths)]
+    masks = [ma_leg_masks(f, d, p) for f, d, p in zip(frames, depths, pts or [None] * len(frames))]
     means = []
     for f, L, (n, fa) in zip(frames, lum, masks):
         a = f[..., 3] > 128
@@ -95,7 +126,9 @@ def ma_leg_tones(frames: list[np.ndarray], depths: list, k: float = 0.55) -> lis
         if not ln or not lf:
             out.append(f.copy())
             continue
-        g = 1 + n * (np.clip(lit / ln, 0.5, 2.2) - 1) + fa * (np.clip(k * lit / lf, 0.3, 2.0) - 1)
+        # the near leg brought up only where the model drew it darker than the far one, and only to the far one's
+        # light: lit to the cycle's usual brightness up to the hip, a near leg on bare skin blew out to white (11-04)
+        g = 1 + n * (np.clip(lf / ln, 1.0, 2.2) - 1) + fa * (np.clip(k * lit / lf, 0.3, 2.0) - 1)
         o = f.copy()
         o[..., :3] = (f[..., :3] * g[..., None]).clip(0, 255).round().astype(np.uint8)
         out.append(o)

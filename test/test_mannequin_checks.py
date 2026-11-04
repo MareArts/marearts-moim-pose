@@ -216,3 +216,27 @@ def test_mannequin_seat_covers_the_top_of_the_near_thigh():
     seat = np.asarray(ma_depth(pts).convert("L")).astype(int)[y, x]
     thigh = np.asarray(ma_depth(pts, seat=0).convert("L")).astype(int)[y, x]
     assert abs(seat - BODY) < 10 and abs(thigh - NEAR) < 10              # the jacket's place, not the trousers'
+
+
+def test_far_leg_shaded_evenly_to_the_hem_and_nothing_else():
+    from marearts_moim_pose.gait import FIG, LHIP, LSHO, RHIP, RKNE
+    from marearts_moim_pose.lock import ma_leg_tones
+    pts = ma_walk_points(0.0)
+    d = ma_depth(pts)
+    a = np.asarray(d.convert("L")) > 20
+    f = np.zeros(a.shape + (4,), np.uint8)
+    f[a] = (235, 195, 175, 255)                                   # bare skin everywhere
+    hem = int(pts[LHIP][1] + 0.06 * FIG)
+    f[:hem][a[:hem]] = (60, 80, 150, 255)                          # shorts and top down to the hem
+    toned = ma_leg_tones([f], [d], 0.55, [pts])[0]
+    lum = lambda im, x, y: float(im[y - 3:y + 3, x - 3:x + 3, :3].mean())
+    rh, rk = pts[RHIP], pts[RKNE]
+    y = int(hem + 0.03 * FIG)                                       # just under the hem, the back edge: the far
+    upper = (int(np.nonzero(a[y])[0].min()) + 12, y)               # leg is the one behind at this step
+    shin = (int(rk[0] + 0.5 * (pts[RKNE + 1][0] - rk[0])), int(rk[1] + 0.5 * (pts[RKNE + 1][1] - rk[1])))
+    assert lum(toned, *upper) < 0.8 * lum(f, *upper)               # shaded up to the hem, not only below the knee
+    assert abs(lum(toned, *upper) - lum(toned, *shin)) < 0.15 * lum(f, *shin)
+    x, y = int(pts[LHIP][0]), int(pts[LHIP][1])                     # the shorts at the hip: as drawn
+    assert lum(toned, x, y) == lum(f, x, y)
+    sx, sy = (int(v) for v in pts[LSHO + 1])                        # the near elbow (skin colour too): as drawn
+    assert lum(toned, sx, sy) == lum(f, sx, sy)

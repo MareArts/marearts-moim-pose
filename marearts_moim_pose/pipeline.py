@@ -403,7 +403,7 @@ def ma_finish(req: MaRequest, phases=None, pts=None, depths=None) -> dict:
            for i in range(req.frames)]
     locked = ma_lock(cut, phases, pts, depths)
     if req.far_shade < 1:
-        locked = ma_leg_tones(locked, depths, req.far_shade)
+        locked = ma_leg_tones(locked, depths, req.far_shade, pts)
     for i, f in enumerate(locked):
         Image.fromarray(f).save(out / f"{req.kind}_{i}.png")
     path = out / f"{req.kind}_report.json"
