@@ -45,13 +45,18 @@ def ma_skeleton(pts: dict) -> Image.Image:
     return im
 
 
-def ma_depth(pts: dict, head: float = 0.19, box: bool = False, bust: float = 0.0) -> Image.Image:
+def ma_depth(pts: dict, head: float = 0.19, box: bool = False, bust: float = 0.0,
+             seat: float = 0.06) -> Image.Image:
     """The depth mannequin of a pose (RGB, near bright, far dark).
 
     head: head width as a share of the height. Use the person's own (a big anime head with hair is about 0.19), or
     the model shrinks the head toward its default. The chin stays put; the head grows back and up.
     box: a carried box before the chest, nearer than the body. bust: how far the chest stands out (share of the
     height, 0 for none, about 0.13 for a fuller figure); the depth picture sets the silhouette, so say it here.
+    seat: how far below the hips the body covers the top of the near thigh (share of the height, 0 for the thigh
+    over it). With the thigh drawn over the body, a video drew the trousers' seat where an older man's jacket hangs
+    behind his hips, in four frames of twelve with the near leg back; with the seat over it, his jacket covered his
+    hips in all twelve (11-04).
     """
     from scipy import ndimage
     im = Image.new("L", (W, H))
@@ -64,14 +69,20 @@ def ma_depth(pts: dict, head: float = 0.19, box: bool = False, bust: float = 0.0
             r = w * s / 2
             d.ellipse([p[0] - r, p[1] - r, p[0] + r, p[1] + r], fill=v)
 
-    def side(hip_i, sho_i, v):
+    def leg(hip_i, v):
         hp, kn, an = pts[hip_i], pts[hip_i + 1], pts[hip_i + 2]
         cap(hp, kn, 0.1, v)
         cap(kn, an, 0.072, v)
         cap(an, (an[0] + 0.075 * s, an[1] + 0.02 * s), 0.035, v)          # the foot, pointing right
+
+    def arm(sho_i, v):
         sh, el, wr = pts[sho_i], pts[sho_i + 1], pts[sho_i + 2]
         cap(sh, el, 0.055, v)
         cap(el, wr, 0.045, v)
+
+    def side(hip_i, sho_i, v):
+        leg(hip_i, v)
+        arm(sho_i, v)
 
     side(RHIP, RSHO, FAR)
     neck, hip = pts[NECK_I], ((pts[LHIP][0] + pts[RHIP][0]) / 2, pts[LHIP][1])
@@ -89,7 +100,13 @@ def ma_depth(pts: dict, head: float = 0.19, box: bool = False, bust: float = 0.0
         d.ellipse([cx + 0.01 * s, cy - 0.065 * s, cx + bust * s, cy + 0.055 * s], fill=CHEST)
     if box:
         d.rectangle(ma_box_rect(pts), fill=BOX)
-    side(LHIP, LSHO, NEAR)
+    if seat:                                    # the seat over the top of the near thigh, then the near arm
+        leg(LHIP, NEAR)
+        r = 0.08 * s
+        d.ellipse([hip[0] - r, hip[1] - r, hip[0] + r, hip[1] + seat * s], fill=BODY)
+        arm(LSHO, NEAR)
+    else:
+        side(LHIP, LSHO, NEAR)
     a = ndimage.gaussian_filter(np.asarray(im, np.float32), 3)
     return Image.fromarray(a.clip(0, 255).astype(np.uint8)).convert("RGB")
 

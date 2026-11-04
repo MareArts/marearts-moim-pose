@@ -206,3 +206,13 @@ def test_mannequin_head_has_a_nose_facing_right():
     fx, cy = int(hx + 0.065 * FIG), int(hy + 0.07 * FIG - 0.45 * 1.115 * 0.19 * FIG)
     assert d[cy, fx + 4] > 40                                      # the nose stands out in front of the head
     assert d[cy, fx + 4] > d[cy - 40, fx + 4] + 30                  # and only there
+
+
+def test_mannequin_seat_covers_the_top_of_the_near_thigh():
+    from marearts_moim_pose.gait import FIG, LHIP
+    from marearts_moim_pose.mannequin import BODY, NEAR
+    pts = ma_walk_points(0.0)
+    x, y = int(pts[LHIP][0]), int(pts[LHIP][1] + 0.03 * FIG)            # just under the hip, on the near thigh
+    seat = np.asarray(ma_depth(pts).convert("L")).astype(int)[y, x]
+    thigh = np.asarray(ma_depth(pts, seat=0).convert("L")).astype(int)[y, x]
+    assert abs(seat - BODY) < 10 and abs(thigh - NEAR) < 10              # the jacket's place, not the trousers'
