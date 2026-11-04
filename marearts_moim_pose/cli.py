@@ -83,14 +83,20 @@ def cmd_finish(args):
 
 
 def cmd_workflows(args):
-    from .comfy import MaComfy, ma_cutout_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt, ma_ui_workflow
+    from .comfy import (MaComfy, ma_cutout_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt,
+                        ma_sharpen_graph, ma_ui_workflow, ma_video_graph)
+    from .pipeline import ma_video_prompt
     info = MaComfy(args.server).object_info()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     graphs = {"moim_pose_1_frame_klein_depth": ma_klein_depth_graph("depth.png", "person.png", ma_prompt()),
               "moim_pose_2_cutout_birefnet": ma_cutout_graph("frame.png"),
               "moim_pose_0_new_character_klein": ma_klein_text_graph("a young man with short black hair, a "
-                                                                         "yellow raincoat, dark jeans, red sneakers")}
+                                                                         "yellow raincoat, dark jeans, red sneakers"),
+              # the cycle as a video: 25 mannequins (two cycles of 12 and one), frame 0 as the first picture
+              "moim_pose_3_cycle_video_wan22": ma_video_graph([f"depth_{k % 12:02d}.png" for k in range(25)],
+                                                              "frame_0.png", ma_video_prompt("", "walk")),
+              "moim_pose_4_sharpen_klein": ma_sharpen_graph("depth.png", "frame_0.png", "video_frame.png", ma_prompt())}
     for name, g in graphs.items():
         (out / f"{name}.json").write_text(json.dumps(ma_ui_workflow(g, info), indent=1) + "\n", encoding="utf-8")
         (out / f"{name}_api.json").write_text(json.dumps(g, indent=1) + "\n", encoding="utf-8")
