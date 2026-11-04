@@ -24,11 +24,12 @@ from PIL import Image
 
 from .checks import (FACING_SURE, ma_alternate_reason, ma_alternates, ma_clothes_change, ma_cutout,
                      ma_facing, ma_frame_ok)
-from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, STYLE, VIDEO_H, VIDEO_W, WALK, MaComfy, ma_arm_words,
+from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, HAND_FIX, STYLE, VIDEO_H, VIDEO_W, WALK,
+                    MaComfy, ma_arm_words,
                     ma_cutout_graph, ma_hand_fix_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt,
                     ma_sharpen_graph, ma_video_graph)
 from .gait import LSHO, RSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
-from .judge import HEAD_MIN, ma_hand_box
+from .judge import HEAD_MIN, ma_hand_box, ma_hand_boxes
 from .lock import ma_leg_tones, ma_lock
 from .mannequin import ma_depth
 from .sheet import ma_loop_gif, ma_meta, ma_review_sheet, ma_sheet, ma_sprites, ma_strip_gif
@@ -137,14 +138,14 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     report = {r["frame"]: r for r in (json.loads(path.read_text(encoding="utf-8")) if path.exists() else [])}
     dnames = {}
 
-    def draw(i, sd, ref=None, start=None, mask=None):
+    def draw(i, sd, ref=None, start=None, mask=None, denoise=HAND_FIX):
         """Frame i at seed sd, drawn (or, given a start picture, made sharp from it; given a mask too, drawn again
         inside it only), cut out and checked: (passes, what was measured, the judge's answer)."""
         if i not in dnames:
             dnames[i] = comfy.upload(depths[i], f"{req.name}_{req.kind}_depth_{i}.png")
             depths[i].save(raw / f"{req.kind}_{i}_depth.png")
         if mask:
-            graph = ma_hand_fix_graph(dnames[i], ref or ref_name, start, mask, prompts[i], seed=sd)
+            graph = ma_hand_fix_graph(dnames[i], ref or ref_name, start, mask, prompts[i], seed=sd, denoise=denoise)
         elif start:
             graph = ma_sharpen_graph(dnames[i], ref or ref_name, start, prompts[i], seed=sd)
         else:
@@ -184,14 +185,17 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
             sd = seeds[0]
             tried = tried + ([sd] if sd not in tried else [])
             ok, said, verdict = draw(i, sd, start=starts[i])
-            if not ok and hands[i] and "missing" in verdict:
-                # the video lost a hand: drawn again where the mannequin has the hands, the rest kept
+            # the video lost a hand: drawn again where the mannequin has the hands; it drew one too many: drawn over
+            # where that one is. The rest of the frame is kept either way.
+            fix, dz = ({}, HAND_FIX) if ok else (hands[i], HAND_FIX) if hands[i] and "missing" in verdict else \
+                (ma_extra_hands(ma_hand_boxes(verdict), pts[i]), EXTRA_FIX)
+            if fix:
                 sharp = comfy.upload(Image.open(raw / f"{req.kind}_{i}.png").convert("RGB"),
                                      f"{req.name}_{req.kind}_sharp_{i}.png")
-                mask = comfy.upload(ma_hands_mask(hands[i]), f"{req.name}_{req.kind}_hands_{i}.png")
+                mask = comfy.upload(ma_hands_mask(fix), f"{req.name}_{req.kind}_hands_{i}.png")
                 for sd in [x for x in ma_seeds(req.seed) if x not in tried][:tries]:
                     tried = tried + [sd]
-                    ok, said, verdict = draw(i, sd, start=sharp, mask=mask)
+                    ok, said, verdict = draw(i, sd, start=sharp, mask=mask, denoise=dz)
                     if ok:
                         log(f"frame {i} seed {sd}: the hands drawn again, ok")
                         break
@@ -290,6 +294,19 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         return dict(report=rows, files={})
     files = ma_finish(req, phases, pts, depths)
     return dict(report=json.loads(path.read_text(encoding="utf-8")), files=files)   # with the two-step check
+
+
+def ma_extra_hands(boxes: list, pts: dict) -> dict:
+    """The hands past the two the mannequin has (boxes in the frame's pixels, from the judge): each wrist takes the
+    nearest box, the rest are too many. Each one's box reaches up its own height, over the sleeve it hangs from."""
+    if len(boxes) <= 2:
+        return {}
+    left = list(boxes)
+    for wrist in (LSHO + 2, RSHO + 2):
+        x0, y0, x1, y1 = ma_hand_box(pts, wrist)
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        left.remove(min(left, key=lambda b: ((b[0] + b[2]) / 2 - cx) ** 2 + ((b[1] + b[3]) / 2 - cy) ** 2))
+    return {f"extra{k}": (b[0], b[1] - (b[3] - b[1]), b[2], b[3]) for k, b in enumerate(left)}
 
 
 def ma_hands_mask(boxes: dict, grow: float = 0.3) -> Image.Image:

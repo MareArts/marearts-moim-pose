@@ -78,6 +78,14 @@ def ma_hand_boxes(answer: str) -> list[tuple[int, ...]]:
     return boxes
 
 
+def ma_frame_box(box: tuple[int, ...], size: tuple[int, int]) -> tuple[int, ...]:
+    """A box the model gave on the torso crop (0-1000 each way) in the frame's pixels."""
+    w, h = size
+    x0, y0, x1, y1 = TORSO
+    return tuple(int(round(v)) for v in (w * (x0 + box[0] / 1000 * (x1 - x0)), h * (y0 + box[1] / 1000 * (y1 - y0)),
+                                         w * (x0 + box[2] / 1000 * (x1 - x0)), h * (y0 + box[3] / 1000 * (y1 - y0))))
+
+
 def ma_verdict(answer: str, kind: str) -> bool:
     """Carrying: no hand hangs by the hip. Walking: at most two hands (boxes, or the last number of a model that
     answers in words)."""
@@ -103,8 +111,11 @@ class MaJudge:
             ok = ma_verdict(said, "carry")
         if ok:                                       # carrying too: no hand past the two on the box
             ans = self.ask(ma_torso(im), ASK_HANDS)
-            ok, n = ma_verdict(ans, "walk"), len(ma_hand_boxes(ans))
-            said = "; ".join(filter(None, [said, f"hands {n}" if n else ans.strip()]))
+            boxes = ma_hand_boxes(ans)
+            ok, n = ma_verdict(ans, "walk"), len(boxes)
+            # too many: where each one is, in the frame's pixels, so the one too many can be drawn over
+            at = " at " + ", ".join(str(list(ma_frame_box(b, im.size))) for b in boxes) if n > 2 else ""
+            said = "; ".join(filter(None, [said, f"hands {n}{at}" if n else ans.strip()]))
         for name, box in (hands or {}).items():
             if not ok:
                 break

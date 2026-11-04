@@ -249,6 +249,10 @@ def ma_sharpen_graph(depth_image: str, ref_image: str, start_image: str, prompt:
 # twelve, both hands in a third); a 30 % pass keeps what is there. Inside the mannequin's hand crops only, the
 # frame graph draws again from 70 % of the noise; the rest of the frame stays as the video drew it (11-03).
 HAND_FIX = 0.7
+# A hand too many (one hanging under an older man's coat between the two): drawn over from 85 % of the noise in its
+# box and the sleeve above it, the rest kept; at 70 % a brown stub of the sleeve stayed under the hem. One seed of
+# three left the trousers clean, the judge sent the other two back (11-04).
+EXTRA_FIX = 0.85
 
 
 def ma_hand_fix_graph(depth_image: str, ref_image: str, start_image: str, mask_image: str, prompt: str,

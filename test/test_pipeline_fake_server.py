@@ -12,8 +12,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import numpy as np
 from PIL import Image
 
-from marearts_moim_pose.comfy import MaComfy, ma_ui_workflow
-from marearts_moim_pose.judge import ma_hand_boxes, ma_verdict
+from marearts_moim_pose.comfy import EXTRA_FIX, HAND_FIX, MaComfy, ma_ui_workflow
+from marearts_moim_pose.judge import ma_frame_box, ma_hand_boxes, ma_verdict
 from marearts_moim_pose.pipeline import MaRequest, ma_draw_cycle
 
 
@@ -63,6 +63,9 @@ class Fake(BaseHTTPRequestHandler):
             out.paste(Image.new("RGB", (220, 1000), (200, 90, 60)), (300, 100))
         elif "10" in g:                                   # a frame: the mannequin painted, scaled per frame
             self.calls.append("sharpen" if "40" in g else "frame")
+            if "45" in g:                                 # inside a mask: how much of the noise
+                self.calls.append(("fix", next(v["inputs"]["denoise"] for v in g.values()
+                                               if "denoise" in v.get("inputs", {}))))
             name = g["10"]["inputs"]["image"]
             d = np.asarray(self.uploads[name].convert("L")).astype(np.float64)
             frame = int(re.search(r"_depth_(\d+)", name).group(1))
@@ -362,6 +365,53 @@ def test_video_frame_that_lost_a_hand_gets_the_hands_drawn_again(tmp_path):
     row = next(r for r in res["report"] if r["frame"] == 2)
     assert row["passed"] and row["engine"] == "video" and len(row["tried"]) == 2, lines
     assert any("frame 2" in s and "hands drawn again" in s for s in lines)
+
+
+def test_extra_hand_is_the_box_away_from_both_wrists():
+    from marearts_moim_pose.gait import ma_gait, ma_frame_phases, ma_walk_points
+    from marearts_moim_pose.pipeline import ma_extra_hands
+    g = ma_gait("older")
+    pts = ma_walk_points(ma_frame_phases(12, g)[8], g)
+    # the judge's boxes on Otto's walk frame 8 (11-04): behind, under the coat between the two, in front
+    boxes = [ma_frame_box(b, (832, 1216)) for b in ([328, 738, 388, 818], [438, 795, 528, 878], [600, 675, 695, 798])]
+    extra = ma_extra_hands(boxes, pts)
+    x0, y0, x1, y1 = boxes[1]
+    assert list(extra.values()) == [(x0, y0 - (y1 - y0), x1, y1)]           # the middle one, up over its sleeve
+    assert ma_extra_hands(boxes[::2], pts) == {}
+
+
+def test_video_frame_with_a_hand_too_many_gets_it_drawn_over(tmp_path):
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    Fake.calls.clear()
+
+    class Judge:
+        """Frame 2 made sharp from the video has three hands; drawn over where the one too many is."""
+        def __init__(self):
+            self.n = 0
+
+        def arms_ok(self, im, kind, hands=None):
+            self.n += 1
+            if self.n == 4:
+                return False, "hands 3 at [150, 600, 200, 650], [380, 640, 430, 700], [600, 600, 650, 650]"
+            return True, "hands 2; near hand there"
+
+        def feet_ok(self, im):
+            return True, "2"
+
+        def facing(self, im):
+            return "right"
+    try:
+        ref = tmp_path / "person.png"
+        Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
+        lines = []
+        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120),
+                            MaComfy(f"http://127.0.0.1:{srv.server_port}"), judge=Judge(), log=lines.append)
+    finally:
+        srv.shutdown()
+    row = next(r for r in res["report"] if r["frame"] == 2)
+    assert row["passed"] and row["engine"] == "video" and len(row["tried"]) == 2, lines
+    assert ("fix", EXTRA_FIX) in Fake.calls and ("fix", HAND_FIX) not in Fake.calls
 
 
 def test_video_frame_kept_when_drawn_on_its_own_fails_too(tmp_path):
