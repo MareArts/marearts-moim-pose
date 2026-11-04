@@ -27,7 +27,11 @@ from .gait import H, W
 MODELS = dict(unet="flux-2-klein-4b-fp8.safetensors", clip="qwen_3_4b.safetensors", vae="flux2-vae.safetensors",
               lora="flux2_klein_4b_refcontrol_depth.safetensors", cutout="birefnet.safetensors",
               video="wan2.2_fun_control_5B_bf16.safetensors", video_clip="umt5_xxl_fp8_e4m3fn_scaled.safetensors",
-              video_vae="wan2.2_vae.safetensors")
+              video_vae="wan2.2_vae.safetensors",
+              video14_high="wan2.2_fun_control_high_noise_14B_fp8_scaled.safetensors",
+              video14_low="wan2.2_fun_control_low_noise_14B_fp8_scaled.safetensors", video14_vae="wan_2.1_vae.safetensors",
+              video14_lora_high="wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+              video14_lora_low="wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors")
 # The video model's size: 480 x 704 keeps the face; at 576 x 832 the head turned into the back of a hood (11-03).
 VIDEO_W, VIDEO_H = 480, 704
 VIDEO_NEG = ("blurry, low quality, extra fingers, extra hands, extra arms, extra legs, deformed hands, bad anatomy, "
@@ -136,12 +140,17 @@ def ma_klein_depth_graph(depth_image: str, ref_image: str, prompt: str, seed: in
 
 def ma_video_graph(depth_images: list[str], first_image: str, prompt: str, seed: int = 7, steps: int = 20,
                    width: int = VIDEO_W, height: int = VIDEO_H, prefix: str = "moim-pose/video",
-                   models: dict | None = None) -> dict:
+                   models: dict | None = None, model: str = "14b") -> dict:
     """A whole cycle at once: Wan 2.2 Fun Control 5B, the depth mannequins as the control video, a drawn frame as
     the first frame (its ref_image). Drawn one by one the frames each chose their own hands, sleeves and pockets; a
     video model draws each frame from the one before. The official template's sampling: 20 steps, uni_pc, cfg 5,
-    shift 8. len(depth_images) must be 4k + 1. The output node "17" holds every frame."""
+    shift 8. len(depth_images) must be 4k + 1. The output node "17" holds every frame.
+    model "14b": Wan 2.2 Fun Control 14B (a high-noise and a low-noise model, the official template's 4-step
+    lightx2v LoRAs, cfg 1); the 5B kept a girl's raincoat in one look worse (its pocket flap came and went, its
+    yellow turned orange in places, 11-04). About two minutes a cycle on an 8 GB card either way."""
     m = dict(MODELS, **(models or {}))
+    if model == "14b":
+        return _ma_video14_graph(depth_images, first_image, prompt, seed, width, height, prefix, m)
     g = {
         "1": {"class_type": "UNETLoader", "inputs": {"unet_name": m["video"], "weight_dtype": "fp8_e4m3fn"}},
         "2": {"class_type": "ModelSamplingSD3", "inputs": {"model": ["1", 0], "shift": 8.0}},
@@ -165,6 +174,45 @@ def ma_video_graph(depth_images: list[str], first_image: str, prompt: str, seed:
     g["25"] = {"class_type": "KSampler", "inputs": {
         "model": ["2", 0], "positive": ["20", 0], "negative": ["20", 1], "latent_image": ["20", 2], "seed": seed,
         "steps": steps, "cfg": 5.0, "sampler_name": "uni_pc", "scheduler": "simple", "denoise": 1.0}}
+    g["26"] = {"class_type": "VAEDecode", "inputs": {"samples": ["25", 0], "vae": ["4", 0]}}
+    g["17"] = {"class_type": "SaveImage", "inputs": {"images": ["26", 0], "filename_prefix": prefix}}
+    return g
+
+
+def _ma_video14_graph(depth_images, first_image, prompt, seed, width, height, prefix, m) -> dict:
+    g = {
+        "1h": {"class_type": "UNETLoader", "inputs": {"unet_name": m["video14_high"], "weight_dtype": "default"}},
+        "1l": {"class_type": "UNETLoader", "inputs": {"unet_name": m["video14_low"], "weight_dtype": "default"}},
+        "2h": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["1h", 0], "lora_name": m["video14_lora_high"],
+                                                               "strength_model": 1.0}},
+        "2l": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["1l", 0], "lora_name": m["video14_lora_low"],
+                                                               "strength_model": 1.0}},
+        "7h": {"class_type": "ModelSamplingSD3", "inputs": {"model": ["2h", 0], "shift": 8.0}},
+        "7l": {"class_type": "ModelSamplingSD3", "inputs": {"model": ["2l", 0], "shift": 8.0}},
+        "3": {"class_type": "CLIPLoader", "inputs": {"clip_name": m["video_clip"], "type": "wan", "device": "default"}},
+        "4": {"class_type": "VAELoader", "inputs": {"vae_name": m["video14_vae"]}},
+        "5": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["3", 0], "text": prompt}},
+        "6": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["3", 0], "text": VIDEO_NEG}},
+        "11": {"class_type": "LoadImage", "inputs": {"image": first_image}},
+    }
+    batch = None
+    for k, name in enumerate(depth_images):
+        g[f"d{k}"] = {"class_type": "LoadImage", "inputs": {"image": name}}
+        if batch is None:
+            batch = [f"d{k}", 0]
+        else:
+            g[f"b{k}"] = {"class_type": "ImageBatch", "inputs": {"image1": batch, "image2": [f"d{k}", 0]}}
+            batch = [f"b{k}", 0]
+    g["20"] = {"class_type": "Wan22FunControlToVideo", "inputs": {
+        "positive": ["5", 0], "negative": ["6", 0], "vae": ["4", 0], "width": width, "height": height,
+        "length": len(depth_images), "batch_size": 1, "ref_image": ["11", 0], "control_video": batch}}
+    sampler = dict(steps=4, cfg=1.0, sampler_name="euler", scheduler="simple", positive=["20", 0], negative=["20", 1])
+    g["25h"] = {"class_type": "KSamplerAdvanced", "inputs": dict(
+        sampler, model=["7h", 0], add_noise="enable", noise_seed=seed, latent_image=["20", 2], start_at_step=0,
+        end_at_step=2, return_with_leftover_noise="enable")}
+    g["25"] = {"class_type": "KSamplerAdvanced", "inputs": dict(
+        sampler, model=["7l", 0], add_noise="disable", noise_seed=0, latent_image=["25h", 0], start_at_step=2,
+        end_at_step=10000, return_with_leftover_noise="disable")}
     g["26"] = {"class_type": "VAEDecode", "inputs": {"samples": ["25", 0], "vae": ["4", 0]}}
     g["17"] = {"class_type": "SaveImage", "inputs": {"images": ["26", 0], "filename_prefix": prefix}}
     return g

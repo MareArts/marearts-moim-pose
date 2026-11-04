@@ -78,7 +78,8 @@ def ma_arm_reach(mask: np.ndarray, depth: Image.Image, pts: dict) -> float:
 
 
 # Clothes from frame to frame (grey levels, the torso away from both arms): drawn one by one from the picture an
-# older man's walk changed up to 33 between frames, drawn as a video 14.5-18; over 20 the clothes visibly jump.
+# older man's walk changed up to 33 between frames, drawn as a video 14.5-18. A number to look at, not a check: wide
+# sleeves over the coat move it too (a 14B video the eye saw as one look measured up to 25).
 CHANGE_MAX = 20.0
 
 
