@@ -114,7 +114,7 @@ def test_far_leg_shaded_near_leg_and_body_kept():
 
 
 def test_judge_asks_where_the_hands_must_be():
-    from marearts_moim_pose.judge import ASK_HAND_HERE, MaJudge, ma_hand_box
+    from marearts_moim_pose.judge import ASK_CARRY, ASK_HAND_HERE, ASK_HANDS, MaJudge, ma_hand_box
     pts = ma_walk_points(0.0)
     box = ma_hand_box(pts, LWRI)
     x0, y0, x1, y1 = box
@@ -126,7 +126,7 @@ def test_judge_asks_where_the_hands_must_be():
 
         def ask(self, im, text):
             self.asked.append(text)
-            return self.here if text == ASK_HAND_HERE else "hand behind the body\nhand in front of the coat\n2"
+            return self.here if text == ASK_HAND_HERE else '[{"bbox_2d": [1, 1, 9, 9]}, {"bbox_2d": [50, 50, 60, 60]}]'
     im = Image.new("RGB", (832, 1216), "white")
     ok, said = Judge("Yes.").arms_ok(im, "walk", {"near": box})
     assert ok and "near hand there" in said
@@ -134,6 +134,22 @@ def test_judge_asks_where_the_hands_must_be():
     ok, said = j.arms_ok(im, "walk", {"near": box, "far": box})
     assert not ok and "near hand missing" in said and len(j.asked) == 2      # stops at the first missing hand
     assert Judge("No.").arms_ok(im, "walk")[0]                                # no boxes: the count alone
+
+    class Carry(MaJudge):
+        def __init__(self, hanging, boxes):
+            self.hanging, self.boxes, self.asked = hanging, boxes, []
+
+        def ask(self, im, text):
+            self.asked.append(text)
+            if text == ASK_CARRY:
+                return self.hanging
+            return str([{"bbox_2d": [10 * k, 0, 10 * k + 9, 9]} for k in range(self.boxes)])
+    assert Carry("No.", 2).arms_ok(im, "carry")[0]
+    j = Carry("No.", 3)                                                       # a third hand somewhere else
+    ok, said = j.arms_ok(im, "carry")
+    assert not ok and "hands 3" in said and j.asked == [ASK_CARRY, ASK_HANDS]
+    j = Carry("Yes.", 2)                                                      # one hangs by the hip: no more asked
+    assert not j.arms_ok(im, "carry")[0] and j.asked == [ASK_CARRY]
 
 
 def test_judge_counts_shoes():

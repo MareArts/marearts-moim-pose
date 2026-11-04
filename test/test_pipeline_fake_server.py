@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image
 
 from marearts_moim_pose.comfy import MaComfy, ma_ui_workflow
-from marearts_moim_pose.judge import ma_verdict
+from marearts_moim_pose.judge import ma_hand_boxes, ma_verdict
 from marearts_moim_pose.pipeline import MaRequest, ma_draw_cycle
 
 
@@ -184,6 +184,11 @@ def test_verdict():
     assert ma_verdict("2", "walk") and not ma_verdict("3", "walk") and not ma_verdict("", "walk")
     assert not ma_verdict("hand behind the body, hand 2 in front of the coat, hand in front\n3", "walk")
     assert ma_verdict("No.", "carry") and not ma_verdict("Yes", "carry")
+    two = '[{"bbox_2d": [216, 672, 300, 788], "label": "hand"}, {"bbox_2d": [688, 600, 796, 750], "label": "hand"}]'
+    three = two[:-1] + ', {"bbox_2d": [438, 795, 528, 878], "label": "hand"}]'
+    assert ma_verdict(two, "walk") and not ma_verdict(three, "walk")    # Otto's frame 8 (11-04): a hand between
+    again = two[:-1] + ', {"bbox_2d": [220, 676, 298, 790], "label": "hand"}]'
+    assert ma_verdict(again, "walk") and len(ma_hand_boxes(again)) == 2  # the same hand boxed twice counts once
 
 
 def _serve(same_foot):

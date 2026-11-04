@@ -2,7 +2,8 @@
 
 Measured checks miss a third hand drawn over the body; a small question to a local VLM on a crop of the torso
 catches it. On our test set (every frame a person had flagged, plus the good ones) it caught all of them and failed
-no good frame (40/40), with Qwen3.5-9B (Apache-2.0). Any model that answers the two questions will do.
+no good frame (40/40), with Qwen3.5-9B (Apache-2.0). The hands are boxed one by one and the boxes counted; a model
+that answers in words instead is read by its last number.
 
 Two ways to run it:
   MaLocalJudge("Qwen/Qwen3.5-9B")          transformers on this machine (about 20 GB of GPU memory in bf16)
@@ -19,10 +20,14 @@ import urllib.request
 from PIL import Image
 
 # Asked for a number alone it said 2 on frames with a third hand hanging before the coat (5 of 9 wrong); made to
-# name each hand first, it counted all 9 right (Rin's walk, 11-03).
-ASK_WALK = ("Look at this cartoon drawing closely. List every hand you can see, from left to right, one short phrase "
-            "each (for example: hand behind the body, hand in front of the coat, hand in front of the body). Then on "
-            "the last line write the number of hands.")
+# name each hand first, it counted all 9 right (Rin's walk, 11-03). Naming still missed a hand drawn under the coat
+# between the two (an older man's video frame a person saw at once, and 6 of 12 such frames in all). Asked for a box
+# around every hand it boxed three on all 12 and two or fewer on 56 frames, the 36 of the last two walks and carries
+# among them (11-04): a box is counted where a list was skimmed.
+ASK_WALK = ("Find every human hand in this cartoon drawing (fingers, a fist or the back of a hand), also a hand partly "
+            "hidden or drawn in front of the coat or trousers. Output a JSON list, one entry per hand: "
+            '[{"bbox_2d": [x1, y1, x2, y2], "label": "hand"}]')
+ASK_HANDS = ASK_WALK                     # walking or carrying, the same question
 # Carrying, a third arm hangs by the hip while two hands hold the box, and a hand count sees only those two.
 ASK_CARRY = ("Look at this cartoon drawing closely. Is there a hand or arm hanging down beside the hip or the trousers, "
              "below the box and not touching the box? Answer yes or no.")
@@ -62,10 +67,25 @@ def ma_torso(im: Image.Image) -> Image.Image:
     return im.convert("RGB").crop((int(w * x0), int(h * y0), int(w * x1), int(h * y1)))
 
 
+def ma_hand_boxes(answer: str) -> list[tuple[int, ...]]:
+    """The boxes in a hand answer, one per hand: a box mostly inside another (the same hand twice) counts once."""
+    boxes = []
+    for b in (tuple(map(int, m)) for m in re.findall(r"\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]", answer)):
+        x0, y0, x1, y1 = b
+        area = max(1, (x1 - x0) * (y1 - y0))
+        if all(max(0, min(x1, c[2]) - max(x0, c[0])) * max(0, min(y1, c[3]) - max(y0, c[1])) < 0.5 * area for c in boxes):
+            boxes.append(b)
+    return boxes
+
+
 def ma_verdict(answer: str, kind: str) -> bool:
-    """Carrying: no hand hangs by the hip. Walking: at most two hands."""
+    """Carrying: no hand hangs by the hip. Walking: at most two hands (boxes, or the last number of a model that
+    answers in words)."""
     if kind == "carry":
         return not answer.strip().lower().startswith("yes")
+    boxes = ma_hand_boxes(answer)
+    if boxes:
+        return len(boxes) <= 2
     m = re.findall(r"\d+", answer)                  # the last number: the count after the list
     return bool(m) and int(m[-1]) <= 2
 
@@ -77,8 +97,14 @@ class MaJudge:
     def arms_ok(self, im: Image.Image, kind: str, hands: dict | None = None) -> tuple[bool, str]:
         """(frame passes, the model's answers). hands: {name: crop box} where the mannequin has a hand that must be
         drawn there (ma_hand_box)."""
-        ans = self.ask(ma_torso(im), ASK_CARRY if kind == "carry" else ASK_WALK)
-        ok, said = ma_verdict(ans, kind), ans
+        ok, said = True, ""
+        if kind == "carry":
+            said = self.ask(ma_torso(im), ASK_CARRY).strip()
+            ok = ma_verdict(said, "carry")
+        if ok:                                       # carrying too: no hand past the two on the box
+            ans = self.ask(ma_torso(im), ASK_HANDS)
+            ok, n = ma_verdict(ans, "walk"), len(ma_hand_boxes(ans))
+            said = "; ".join(filter(None, [said, f"hands {n}" if n else ans.strip()]))
         for name, box in (hands or {}).items():
             if not ok:
                 break
@@ -174,7 +200,7 @@ class MaLocalJudge(MaJudge):
         x = self.proc.apply_chat_template(msg, add_generation_prompt=True, tokenize=True, return_dict=True,
                                           return_tensors="pt", enable_thinking=False).to(self.model.device)
         with self.torch.no_grad():
-            out = self.model.generate(**x, max_new_tokens=96, do_sample=False)
+            out = self.model.generate(**x, max_new_tokens=256, do_sample=False)
         return self.proc.decode(out[0, x["input_ids"].shape[1]:], skip_special_tokens=True).strip()
 
 
@@ -186,7 +212,7 @@ class MaHttpJudge(MaJudge):
         buf = io.BytesIO()
         im.save(buf, "PNG")
         image = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
-        body = {"model": self.model, "temperature": 0, "max_tokens": 96,
+        body = {"model": self.model, "temperature": 0, "max_tokens": 256,
                 "messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": image}},
                                                           {"type": "text", "text": text}]}]}
         req = urllib.request.Request(self.url + "/v1/chat/completions", json.dumps(body).encode(),
