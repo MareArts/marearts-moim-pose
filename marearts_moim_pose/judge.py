@@ -87,6 +87,11 @@ class MaJudge:
             said += f"; {name} hand {'there' if ok else 'missing'}"
         return ok, said
 
+    def head_likeness(self, im: Image.Image, ref: Image.Image) -> float | None:
+        """How like the picture's head a frame's head is (cosine of DINOv2 features, 1 = same), or None when this
+        judge cannot tell. MaLikeness does it on the CPU; a judge may hand it to one."""
+        return None
+
     def feet_ok(self, im: Image.Image) -> tuple[bool, str]:
         """(two shoes at most, the model's answer) on the legs and feet."""
         w, h = im.size
@@ -104,6 +109,38 @@ class MaJudge:
         return "left" if ans.startswith("left") else "right" if ans.startswith("right") else ""
 
 
+# A video model can change the person while every hand and shoe is right: an older man's flat cap lost its brim
+# and his short hair grew to the neck in 9 frames of 12. The VLM saw a flat cap and a profile in all of them; head
+# features did not: 0.81-0.86 against his picture, 0.97-0.99 for frames that were him (a girl drawn the same way:
+# 0.90-0.95), 11-04.
+HEAD_MIN = 0.88
+HEAD_CROP = (0.25, 0.03, 0.85, 0.30)
+
+
+def ma_head(im: Image.Image) -> Image.Image:
+    w, h = im.size
+    x0, y0, x1, y1 = HEAD_CROP
+    return im.convert("RGB").crop((int(w * x0), int(h * y0), int(w * x1), int(h * y1)))
+
+
+class MaLikeness:
+    """Head likeness by DINOv2 small (Apache-2.0) on the CPU, loaded on first use."""
+
+    def __init__(self, model_id: str = "facebook/dinov2-small"):
+        self.model_id, self.model = model_id, None
+
+    def __call__(self, im: Image.Image, ref: Image.Image) -> float:
+        import torch
+        from transformers import AutoImageProcessor, AutoModel
+        if self.model is None:
+            self.proc = AutoImageProcessor.from_pretrained(self.model_id)
+            self.model = AutoModel.from_pretrained(self.model_id).eval()
+        with torch.no_grad():
+            e = self.model(**self.proc(images=[ma_head(im), ma_head(ref)], return_tensors="pt")).last_hidden_state[:, 0]
+        e = torch.nn.functional.normalize(e, dim=-1)
+        return float(e[0] @ e[1])
+
+
 class MaLocalJudge(MaJudge):
     def __init__(self, model_id: str = "Qwen/Qwen3.5-9B", device: str = "cuda"):
         import torch
@@ -112,6 +149,11 @@ class MaLocalJudge(MaJudge):
         self.proc = AutoProcessor.from_pretrained(model_id)
         self.model = AutoModelForImageTextToText.from_pretrained(model_id, dtype=torch.bfloat16,
                                                                  device_map=device).eval()
+
+    def head_likeness(self, im: Image.Image, ref: Image.Image) -> float:
+        if not hasattr(self, "likeness"):
+            self.likeness = MaLikeness()
+        return self.likeness(im, ref)
 
     def ask(self, im: Image.Image, text: str) -> str:
         msg = [{"role": "user", "content": [{"type": "image", "image": im}, {"type": "text", "text": text}]}]

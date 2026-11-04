@@ -164,3 +164,11 @@ def test_clothes_change_between_frames():
     c = ma_clothes_change(jumped, pts)
     assert c[1] > CHANGE_MAX and c[2] > CHANGE_MAX              # the pairs into and out of frame 2
     assert c[0] < CHANGE_MAX
+
+
+def test_head_likeness_fails_another_person():
+    from marearts_moim_pose.judge import HEAD_MIN, MaJudge, ma_head
+    im = Image.new("RGB", (832, 1216), "white")
+    assert ma_head(im).size == (int(832 * 0.85) - int(832 * 0.25), int(1216 * 0.30) - int(1216 * 0.03))
+    assert MaJudge().head_likeness(im, im) is None                 # a judge without it says nothing
+    assert 0.8 < HEAD_MIN < 0.95

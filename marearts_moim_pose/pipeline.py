@@ -28,7 +28,7 @@ from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, STYLE, VIDEO_H, 
                     ma_cutout_graph, ma_hand_fix_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt,
                     ma_sharpen_graph, ma_video_graph)
 from .gait import LSHO, RSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
-from .judge import ma_hand_box
+from .judge import HEAD_MIN, ma_hand_box
 from .lock import ma_leg_tones, ma_lock
 from .mannequin import ma_depth
 from .sheet import ma_loop_gif, ma_meta, ma_review_sheet, ma_sheet, ma_sprites, ma_strip_gif
@@ -117,6 +117,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
             mask = np.asarray(Image.open(m).convert("L").resize(ref.size)) > 128
         ref = ma_face_right(ref, mask, req.facing, judge, log)
     ref.save(raw / "reference.png")
+    ref_im = ref                                        # the person, for the head likeness
     ref_name = comfy.upload(ref, f"{req.name}_ref.png")
     carry = req.kind == "carry"
     phases = ma_frame_phases(req.frames, req.gait)
@@ -160,6 +161,12 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
             if ok:
                 ok, feet = judge.feet_ok(Image.open(frame))
                 verdict += f"; shoes {(re.findall(r'[0-9]+', feet) or ['?'])[-1]}"
+            if ok:
+                likeness = getattr(judge, "head_likeness", None)      # a judge of one's own may not have it
+                like = likeness(Image.open(frame), ref_im) if likeness else None
+                if like is not None:
+                    ok = like >= HEAD_MIN
+                    verdict += f"; head {like:.2f}" + ("" if ok else " (another person)")
         log(f"frame {i} seed {sd}: {said}" + (f", judge {verdict!r}" if verdict else "") + (" ok" if ok else " again"))
         return ok, said, verdict
 
@@ -177,7 +184,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
             sd = seeds[0]
             tried = tried + ([sd] if sd not in tried else [])
             ok, said, verdict = draw(i, sd, start=starts[i])
-            if not ok and hands[i]:
+            if not ok and hands[i] and "missing" in verdict:
                 # the video lost a hand: drawn again where the mannequin has the hands, the rest kept
                 sharp = comfy.upload(Image.open(raw / f"{req.kind}_{i}.png").convert("RGB"),
                                      f"{req.name}_{req.kind}_sharp_{i}.png")
@@ -195,6 +202,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
                 if ok:
                     break
         if not ok and i in starts:
+            lost = "missing" in verdict          # only a hand the video lost is worth keeping it for
             # drawn on its own only if that passes: an arm half way back failed both ways on every seed, and a frame
             # drawn on its own broke the one look of the cycle (clothes change 6.9 -> 11.1, 11-03); the video's
             # frame is kept then, failed, for a person's look
@@ -207,11 +215,13 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
                 if ok:
                     kept, alone = None, True
                     break
-            if not ok:
+            if not ok and lost:
                 for p, data in keep.items():
                     p.write_bytes(data)
                 sd, said, verdict = kept
                 log(f"frame {i}: kept the video's frame (seed {sd}); look at it")
+            elif not ok:
+                kept = None
         # every seed drew the hand where the standing picture has it (an arm half way back): the frame is drawn from
         # a neighbour that passed instead, whose arm is already near; one step only, so the look does not drift
         if not ok and judge is not None and use_seed is None and i not in starts:
