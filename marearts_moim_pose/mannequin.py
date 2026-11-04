@@ -78,6 +78,12 @@ def ma_depth(pts: dict, head: float = 0.19, box: bool = False, bust: float = 0.0
     cap((neck[0], neck[1] + 0.04 * s), hip, 0.16, BODY)
     hx, hy, hw = pts[NOSE][0] - 0.05 * s, pts[NOSE][1] - 0.01 * s, head * s
     d.ellipse([hx + 0.065 * s - hw, hy + 0.07 * s - 1.115 * hw, hx + 0.065 * s, hy + 0.07 * s], fill=HEAD)
+    # a nose: the face in profile, facing right. A plain oval said nothing of where the face looks, and a video
+    # model turned an older man's face to the viewer and drew another man (head likeness 0.51-0.65); with the nose
+    # he stayed himself (0.87-0.95), 11-04
+    fx, cy = hx + 0.065 * s, hy + 0.07 * s - 0.45 * 1.115 * hw
+    d.polygon([(fx - 0.035 * s, cy - 0.022 * s), (fx + 0.018 * s, cy + 0.008 * s), (fx - 0.035 * s, cy + 0.022 * s)],
+              fill=HEAD + 25)
     if bust:
         cx, cy = neck[0] + (hip[0] - neck[0]) * 0.24, neck[1] + (hip[1] - neck[1]) * 0.24
         d.ellipse([cx + 0.01 * s, cy - 0.065 * s, cx + bust * s, cy + 0.055 * s], fill=CHEST)

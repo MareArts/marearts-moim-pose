@@ -180,3 +180,13 @@ def test_head_likeness_fails_another_person():
     assert head.size[0] == head.size[1] and head.size[0] < 200                  # the head only, not the box
     assert MaJudge().head_likeness(im, im) is None                 # a judge without it says nothing
     assert 0.8 < HEAD_MIN < 0.95
+
+
+def test_mannequin_head_has_a_nose_facing_right():
+    from marearts_moim_pose.gait import FIG, NOSE
+    pts = ma_walk_points(0.0)
+    d = np.asarray(ma_depth(pts).convert("L")).astype(int)
+    hx, hy = pts[NOSE][0] - 0.05 * FIG, pts[NOSE][1] - 0.01 * FIG
+    fx, cy = int(hx + 0.065 * FIG), int(hy + 0.07 * FIG - 0.45 * 1.115 * 0.19 * FIG)
+    assert d[cy, fx + 4] > 40                                      # the nose stands out in front of the head
+    assert d[cy, fx + 4] > d[cy - 40, fx + 4] + 30                  # and only there
