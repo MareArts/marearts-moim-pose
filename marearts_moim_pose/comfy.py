@@ -149,8 +149,9 @@ def ma_video_graph(depth_images: list[str], first_image: str, prompt: str, seed:
     lightx2v LoRAs, cfg 1); the 5B kept a girl's raincoat in one look worse (its pocket flap came and went, its
     yellow turned orange in places, 11-04). About two minutes a cycle on an 8 GB card either way."""
     m = dict(MODELS, **(models or {}))
-    if model == "14b":
-        return _ma_video14_graph(depth_images, first_image, prompt, seed, width, height, prefix, m)
+    if model in ("14b", "14b-full"):
+        return _ma_video14_graph(depth_images, first_image, prompt, seed, width, height, prefix, m,
+                                 fast=model == "14b")
     g = {
         "1": {"class_type": "UNETLoader", "inputs": {"unet_name": m["video"], "weight_dtype": "fp8_e4m3fn"}},
         "2": {"class_type": "ModelSamplingSD3", "inputs": {"model": ["1", 0], "shift": 8.0}},
@@ -179,22 +180,29 @@ def ma_video_graph(depth_images: list[str], first_image: str, prompt: str, seed:
     return g
 
 
-def _ma_video14_graph(depth_images, first_image, prompt, seed, width, height, prefix, m) -> dict:
+def _ma_video14_graph(depth_images, first_image, prompt, seed, width, height, prefix, m, fast=True) -> dict:
+    """fast: the 4-step lightx2v LoRAs at cfg 1 (the negative words do nothing); else the template's 20 steps at
+    cfg 3.5, five times as long."""
     g = {
         "1h": {"class_type": "UNETLoader", "inputs": {"unet_name": m["video14_high"], "weight_dtype": "default"}},
         "1l": {"class_type": "UNETLoader", "inputs": {"unet_name": m["video14_low"], "weight_dtype": "default"}},
-        "2h": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["1h", 0], "lora_name": m["video14_lora_high"],
-                                                               "strength_model": 1.0}},
-        "2l": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["1l", 0], "lora_name": m["video14_lora_low"],
-                                                               "strength_model": 1.0}},
-        "7h": {"class_type": "ModelSamplingSD3", "inputs": {"model": ["2h", 0], "shift": 8.0}},
-        "7l": {"class_type": "ModelSamplingSD3", "inputs": {"model": ["2l", 0], "shift": 8.0}},
+    }
+    hi, lo = ["1h", 0], ["1l", 0]
+    if fast:
+        g["2h"] = {"class_type": "LoraLoaderModelOnly", "inputs": {"model": hi, "lora_name": m["video14_lora_high"],
+                                                                   "strength_model": 1.0}}
+        g["2l"] = {"class_type": "LoraLoaderModelOnly", "inputs": {"model": lo, "lora_name": m["video14_lora_low"],
+                                                                   "strength_model": 1.0}}
+        hi, lo = ["2h", 0], ["2l", 0]
+    g.update({
+        "7h": {"class_type": "ModelSamplingSD3", "inputs": {"model": hi, "shift": 8.0}},
+        "7l": {"class_type": "ModelSamplingSD3", "inputs": {"model": lo, "shift": 8.0}},
         "3": {"class_type": "CLIPLoader", "inputs": {"clip_name": m["video_clip"], "type": "wan", "device": "default"}},
         "4": {"class_type": "VAELoader", "inputs": {"vae_name": m["video14_vae"]}},
         "5": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["3", 0], "text": prompt}},
         "6": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["3", 0], "text": VIDEO_NEG}},
         "11": {"class_type": "LoadImage", "inputs": {"image": first_image}},
-    }
+    })
     batch = None
     for k, name in enumerate(depth_images):
         g[f"d{k}"] = {"class_type": "LoadImage", "inputs": {"image": name}}
@@ -206,13 +214,15 @@ def _ma_video14_graph(depth_images, first_image, prompt, seed, width, height, pr
     g["20"] = {"class_type": "Wan22FunControlToVideo", "inputs": {
         "positive": ["5", 0], "negative": ["6", 0], "vae": ["4", 0], "width": width, "height": height,
         "length": len(depth_images), "batch_size": 1, "ref_image": ["11", 0], "control_video": batch}}
-    sampler = dict(steps=4, cfg=1.0, sampler_name="euler", scheduler="simple", positive=["20", 0], negative=["20", 1])
+    steps, cfg = (4, 1.0) if fast else (20, 3.5)
+    sampler = dict(steps=steps, cfg=cfg, sampler_name="euler", scheduler="simple", positive=["20", 0],
+                   negative=["20", 1])
     g["25h"] = {"class_type": "KSamplerAdvanced", "inputs": dict(
         sampler, model=["7h", 0], add_noise="enable", noise_seed=seed, latent_image=["20", 2], start_at_step=0,
-        end_at_step=2, return_with_leftover_noise="enable")}
+        end_at_step=steps // 2, return_with_leftover_noise="enable")}
     g["25"] = {"class_type": "KSamplerAdvanced", "inputs": dict(
-        sampler, model=["7l", 0], add_noise="disable", noise_seed=0, latent_image=["25h", 0], start_at_step=2,
-        end_at_step=10000, return_with_leftover_noise="disable")}
+        sampler, model=["7l", 0], add_noise="disable", noise_seed=0, latent_image=["25h", 0],
+        start_at_step=steps // 2, end_at_step=10000, return_with_leftover_noise="disable")}
     g["26"] = {"class_type": "VAEDecode", "inputs": {"samples": ["25", 0], "vae": ["4", 0]}}
     g["17"] = {"class_type": "SaveImage", "inputs": {"images": ["26", 0], "filename_prefix": prefix}}
     return g

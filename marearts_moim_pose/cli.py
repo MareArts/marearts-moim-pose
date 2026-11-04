@@ -125,8 +125,9 @@ def main(argv=None):
             p.add_argument("--engine", choices=("video", "frames"), default="video",
                            help="video: the cycle drawn at once by a video model, then made sharp (one look across "
                                 "the cycle); frames: every frame drawn on its own")
-            p.add_argument("--video-model", choices=("14b", "5b"), default="14b",
-                           help="Wan 2.2 Fun Control 14B (default) or 5B (fewer files, keeps clothes worse)")
+            p.add_argument("--video-model", choices=("14b", "14b-full", "5b"), default="14b",
+                           help="Wan 2.2 Fun Control 14B in 4 steps (default), 14B in 20 steps (cfg 3.5, slower), "
+                                "or 5B (fewer files, keeps clothes worse)")
             p.add_argument("--alternate", action="store_true",
                            help="draw again a frame that leads with the same leg as the frame half a cycle away")
         p.add_argument("--out", required=True)
