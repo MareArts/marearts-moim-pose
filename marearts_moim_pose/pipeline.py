@@ -31,7 +31,7 @@ from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, HAND_
 from .gait import LSHO, RSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
 from .judge import HEAD_FLOOR, HEAD_MIN, HEAD_SLACK, ma_hand_box, ma_hand_boxes
 from .lock import ma_leg_tones, ma_lock
-from .mannequin import ma_depth, ma_skirt_at, ma_skirt_flare, ma_skirt_hem, ma_skirt_of
+from .mannequin import ma_depth, ma_fit, ma_skirt_at, ma_skirt_flare, ma_skirt_hem, ma_skirt_of
 from .sheet import ma_loop_gif, ma_meta, ma_review_sheet, ma_sheet, ma_sprites, ma_strip_gif
 
 NEIGHBOUR_TRIES = 3     # an older man's arm half way back: 12 seeds failed from his picture, 1 in 3 from frame 1
@@ -86,9 +86,11 @@ class MaRequest:
     gait: MaGait = field(default_factory=MaGait)
     frames: int = 12                   # 8 read as jumps (a hand 112 px a frame); 12 walked smoothly (11-03)
     seed: int = 7
-    head: float = 0.19                   # head width / height of the person in the picture
-    bust: float = 0.0
-    skirt: float | None = None           # where a skirt ends along the leg (ma_depth); None: read from the look
+    # the mannequin's shape (ma_depth), each None: measured on the person's picture (ma_shape)
+    head: float | None = None            # head width / height of the person in the picture
+    bust: float | None = None
+    body: float | None = None            # how thick the body is, front to back
+    skirt: float | None = None           # where a skirt ends along the leg; whether there is one from the look
     height: int | None = 256             # sprite height in px (None: full size)
     fps: int = 12                      # one cycle a second at 12 frames
     far_shade: float = 0.9               # the far leg's brightness against the near one's (1: legs as drawn)
@@ -119,25 +121,17 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
             mask = np.asarray(Image.open(m).convert("L").resize(ref.size)) > 128
         ref = ma_face_right(ref, mask, req.facing, judge, log)
     ref.save(raw / "reference.png")
-    # whether there is a skirt the words say; where it ends and how wide it stands the person's own picture, when a
-    # judge can find it there (the words called a skirt to the ankle midi; one width made a pencil skirt A-line, 11-05)
-    if req.skirt is None and not (raw / "skirt.json").exists():
-        skirt, flare = ma_skirt_of(req.look), None
-        hem = judge.skirt_hem(ref) if skirt and judge is not None and hasattr(judge, "skirt_hem") else None
-        if hem is not None:
-            from .checks import ma_person
-            skirt = ma_skirt_at(hem)
-            flare = round(ma_skirt_flare(ma_person((np.asarray(ref.convert("RGB")) < 235).any(-1)), hem), 3)
-            log(f"skirt: ends {hem:.2f} of the height down the picture, {skirt:.2f} along the leg, flare {flare}")
-        (raw / "skirt.json").write_text(json.dumps({"skirt": round(skirt, 3), "flare": flare}) + "\n",
-                                        encoding="utf-8")
+    if not (raw / "shape.json").exists():
+        shape = ma_measure_shape(req, ref, judge)
+        log("shape from the picture: " + ", ".join(f"{k} {v}" for k, v in shape.items()))
+        (raw / "shape.json").write_text(json.dumps(shape) + "\n", encoding="utf-8")
+    shape = ma_shape(req)
     ref_im = ref                                        # the person, for the head likeness
     ref_name = comfy.upload(ref, f"{req.name}_ref.png")
     carry = req.kind == "carry"
     phases = ma_frame_phases(req.frames, req.gait)
     pts = [ma_walk_points(t, req.gait, carry=carry) for t in phases]
-    depths = [ma_depth(p, head=req.head, box=carry, bust=req.bust, skirt=ma_skirt(req), flare=ma_flare(req))
-              for p in pts]
+    depths = [ma_depth(p, box=carry, **shape) for p in pts]
     widest = max(abs(p[LSHO + 1][0] - p[LSHO][0]) for p in pts)
     prompts = [ma_prompt(req.look, req.kind, change=req.change, arms="" if carry else ma_arm_words(p, widest))
                for p in pts]
@@ -209,7 +203,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
             # it; drew one too many: drawn over where that one is; drew another person's head: the head drawn again.
             # A lost hand is drawn in the mannequin's hand crop alone: grown by 30 % it took in the hem and the pocket
             # by the hip, and an older man's frame came out with another hem than its neighbours (11-04)
-            fix, dz, grow = ma_video_fix(verdict, hands[i], pts[i], req.head) if not ok else ({}, HAND_FIX, 0.0)
+            fix, dz, grow = ma_video_fix(verdict, hands[i], pts[i], shape["head"]) if not ok else ({}, HAND_FIX, 0.0)
             if fix:
                 keep = {p: p.read_bytes() for p in (raw / f"{req.kind}_{i}.png", raw / f"{req.kind}_{i}_mask.png")}
                 kept = (sd, said, verdict)
@@ -430,21 +424,33 @@ def ma_seeds(seed: int) -> list[int]:
     return [seed + off for off in SEEDS] + [seed + 100 + 37 * k for k in range(40)]
 
 
-def ma_skirt(req: MaRequest) -> float:
-    """Where the person's skirt ends along the leg (0: none): as asked, as measured on the picture when the cycle was
-    first drawn (raw/skirt.json), or from the words of the look."""
-    saved = Path(req.out) / "raw" / "skirt.json"
-    if req.skirt is not None:
-        return req.skirt
+def ma_measure_shape(req: MaRequest, ref: Image.Image, judge=None) -> dict:
+    """The mannequin's shape from the person's own picture (ma_fit: head, body, bust), what the request does not set.
+    Whether there is a skirt the words say; where it ends and how wide it stands the picture, when a judge can find
+    it there (the words called a skirt to the ankle midi; one width made a pencil skirt A-line, 11-05)."""
+    from .checks import ma_person
+    person = ma_person((np.asarray(ref.convert("RGB")) < 235).any(-1))
+    shape = ma_fit(person)
+    skirt, flare = ma_skirt_of(req.look), None
+    hem = judge.skirt_hem(ref) if skirt and judge is not None and hasattr(judge, "skirt_hem") else None
+    if hem is not None:
+        skirt, flare = ma_skirt_at(hem), round(ma_skirt_flare(person, hem), 3)
+    shape.update(skirt=round(skirt, 3), flare=flare)
+    return shape
+
+
+def ma_shape(req: MaRequest) -> dict:
+    """The mannequin's shape for ma_depth (head, body, bust, torso, skirt, flare): as the request sets it (a body or a
+    bust asked for drops the measured outline), else as measured
+    on the picture when the cycle was first drawn (raw/shape.json), else the defaults (a skirt from the words)."""
+    saved = Path(req.out) / "raw" / "shape.json"
+    shape = dict(head=0.19, body=0.16, bust=0.0, torso=None, skirt=ma_skirt_of(req.look), flare=None)
     if saved.exists():
-        return float(json.loads(saved.read_text(encoding="utf-8"))["skirt"])
-    return ma_skirt_of(req.look)
-
-
-def ma_flare(req: MaRequest) -> float | None:
-    """How far the person's skirt stands off the legs as measured on the picture (raw/skirt.json), or None."""
-    saved = Path(req.out) / "raw" / "skirt.json"
-    return json.loads(saved.read_text(encoding="utf-8")).get("flare") if saved.exists() else None
+        shape.update(json.loads(saved.read_text(encoding="utf-8")))
+    shape.update({k: v for k in ("head", "body", "bust", "skirt") if (v := getattr(req, k)) is not None})
+    if req.body is not None or req.bust is not None:
+        shape["torso"] = None
+    return shape
 
 
 def ma_finish(req: MaRequest, phases=None, pts=None, depths=None) -> dict:
@@ -453,17 +459,17 @@ def ma_finish(req: MaRequest, phases=None, pts=None, depths=None) -> dict:
     carry = req.kind == "carry"
     phases = phases or ma_frame_phases(req.frames, req.gait)
     pts = pts or [ma_walk_points(t, req.gait, carry=carry) for t in phases]
-    depths = depths or [ma_depth(p, head=req.head, box=carry, bust=req.bust, skirt=ma_skirt(req), flare=ma_flare(req))
-                        for p in pts]
+    shape = ma_shape(req)
+    depths = depths or [ma_depth(p, box=carry, **shape) for p in pts]
     cut = [ma_cutout(Image.open(raw / f"{req.kind}_{i}.png"), Image.open(raw / f"{req.kind}_{i}_mask.png"))
            for i in range(req.frames)]
     locked = ma_lock(cut, phases, pts, depths)
     if req.far_shade < 1:
         # the legs told apart on the mannequin without the skirt, from its hem down
-        skirt = ma_skirt(req)
-        bare = [ma_depth(p, head=req.head, box=carry, bust=req.bust) for p in pts] if skirt else depths
+        skirt = shape["skirt"]
+        bare = [ma_depth(p, box=carry, **{**shape, "skirt": 0}) for p in pts] if skirt else depths
         locked = ma_leg_tones(locked, bare, req.far_shade, pts,
-                              [ma_skirt_hem(p, skirt, ma_flare(req))[2] for p in pts] if skirt else None)
+                              [ma_skirt_hem(p, skirt, shape["flare"])[2] for p in pts] if skirt else None)
     for i, f in enumerate(locked):
         Image.fromarray(f).save(out / f"{req.kind}_{i}.png")
     path = out / f"{req.kind}_report.json"

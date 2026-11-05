@@ -109,8 +109,9 @@ moim-pose finish --out out/alice
 | `--video-model` | `14b` (default, 4 steps), `14b-full` (20 steps, about six times as long), `5b` (fewer files, keeps clothes worse) |
 | `--frames` | frames a cycle (default 12; 8 makes a smaller sheet but the arms move in bigger jumps) |
 | `--fps` | GIF speed (default 12: one cycle a second at 12 frames) |
-| `--head` | head width / height of the character (0.19 for a big anime head with hair); the mannequin's head follows it |
-| `--bust` | how far the chest stands out in the mannequin (0.13 for a fuller figure); the silhouette comes from the depth |
+| `--head` | head width / height of the character; measured on the picture when not given (hair included) |
+| `--bust` | how far the chest stands out in the mannequin; measured on the picture when not given |
+| `--body` | how thick the body is front to back / height; measured on the picture when not given |
 | `--change` | the one thing to draw differently from the picture |
 | `--height` | sprite height in px (default 256, 0 = full 832 x 1216 frame) |
 | `--far-shade` | how bright the far leg is against the near one, shaded deeper in its own colour (default 0.9; 1 = legs as drawn) |

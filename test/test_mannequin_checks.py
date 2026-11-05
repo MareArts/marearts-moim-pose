@@ -337,3 +337,36 @@ def test_skirt_flare_measured_on_the_picture():
     wide = [int((np.abs(np.asarray(ma_depth(pts, skirt=1.0, flare=f).convert("L")).astype(int)[y] - SKIRT) < 12).sum())
             for f in (pencil, aline)]
     assert wide[1] > wide[0] + 0.05 * FIG                  # an A-line skirt stands wider than a pencil one
+
+
+def test_mannequin_fitted_to_the_picture():
+    from marearts_moim_pose.gait import FIG, HIP, LHIP, NECK_I
+    from marearts_moim_pose.mannequin import BODY, ma_fit, ma_torso_outline
+    m = np.zeros((1100, 600), bool)                       # a slim figure 1000 px tall facing right
+    m[50:250, 230:390] = True                              # head with hair: 0.16 wide, the neck at 0.2
+    m[250:270, 290:330] = True                             # the neck
+    m[270:1050, 250:370] = True                            # body 0.12 thick
+    m[300:480, 100:250] = True                             # long hair down the back, to 0.43
+    m[310:370, 370:420] = True                             # a chest standing out 0.05 at the front
+    f = ma_fit(m)
+    assert abs(f["head"] - 0.16) < 0.01 and abs(f["body"] - 0.12) < 0.01 and abs(f["bust"] - 0.11) < 0.015
+    rows = f["torso"]["rows"]
+    assert max(r[1] for r in rows) <= 0.78 * 0.12 + 1e-3              # the hair behind is not body
+    assert max(r[0] for r in rows) > 0.10                              # the chest is
+    flat = m.copy()
+    flat[310:370, 370:420] = False
+    assert ma_fit(flat)["bust"] == 0                       # nothing stands out: no chest drawn
+    assert ma_fit(np.zeros((50, 50), bool))["body"] == 0.16
+    pony = m.copy()
+    pony[60:120, 60:230] = True                            # a ponytail behind the head
+    assert ma_fit(pony)["head"] < 0.17                     # the head stays the size of the head
+    pts = ma_walk_points(0.25)
+    y = int((pts[NECK_I][1] + pts[LHIP][1]) / 2)
+    wide = [int((np.asarray(ma_depth(pts, body=b).convert("L"))[y] > 100).sum()) for b in (0.12, 0.16)]
+    assert abs(wide[1] - wide[0] - 0.04 * FIG) < 12        # the tube drawn as thick as measured
+    d = np.asarray(ma_depth(pts, torso=f["torso"]).convert("L")).astype(int)
+    out = ma_torso_outline(pts, f["torso"])
+    chest_y = int(pts[NECK_I][1] + (pts[LHIP][1] - pts[NECK_I][1]) * 0.35)
+    xs = np.nonzero(np.abs(d[chest_y] - BODY) < 15)[0]
+    assert xs.max() - pts[NECK_I][0] > 0.08 * FIG          # the chest stands out in the mannequin too
+    assert max(p[1] for p in out) > pts[LHIP][1]           # and the seat goes on past the hips

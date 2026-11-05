@@ -32,8 +32,9 @@ def _common(p):
     for k in ("step", "knee", "arm", "lean", "elbow"):
         p.add_argument(f"--{k}", type=float, default=None)
     p.add_argument("--frames", type=int, default=12, help="frames a cycle (even); 8 for a smaller sheet")
-    p.add_argument("--head", type=float, default=0.19, help="head width / height of the person")
-    p.add_argument("--bust", type=float, default=0.0)
+    p.add_argument("--head", type=float, default=None, help="head width / height of the person (default: measured)")
+    p.add_argument("--bust", type=float, default=None, help="how far the chest stands out (default: measured)")
+    p.add_argument("--body", type=float, default=None, help="body thickness / height (default: measured)")
 
 
 def cmd_mannequin(args):
@@ -42,7 +43,8 @@ def cmd_mannequin(args):
     g = _gait(args)
     for i, t in enumerate(ma_frame_phases(args.frames, g)):
         pts = ma_walk_points(t, g, carry=args.kind == "carry")
-        ma_depth(pts, head=args.head, box=args.kind == "carry", bust=args.bust).save(out / f"{args.kind}_{i}_depth.png")
+        ma_depth(pts, head=args.head or 0.19, box=args.kind == "carry", bust=args.bust or 0.0,
+                 body=args.body or 0.16).save(out / f"{args.kind}_{i}_depth.png")
         ma_skeleton(pts).save(out / f"{args.kind}_{i}_pose.png")
     print(out)
 
@@ -52,7 +54,7 @@ def _request(args):
     return MaRequest(reference=Path(args.reference) if getattr(args, "reference", None) else Path(),
                      out=Path(args.out), name=Path(args.out).name, kind=args.kind, look=getattr(args, "look", ""),
                      change=getattr(args, "change", ""), gait=_gait(args), frames=args.frames,
-                     seed=getattr(args, "seed", 7), head=args.head, bust=args.bust,
+                     seed=getattr(args, "seed", 7), head=args.head, bust=args.bust, body=args.body,
                      height=None if args.height == 0 else args.height, fps=args.fps,
                      far_shade=args.far_shade, alternate=getattr(args, "alternate", False),
                      facing=getattr(args, "facing", "auto"), engine=getattr(args, "engine", "video"),
