@@ -29,7 +29,7 @@ from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, HAND_
                     ma_cutout_graph, ma_hand_fix_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt,
                     ma_sharpen_graph, ma_video_graph)
 from .gait import LSHO, RSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
-from .judge import HEAD_MIN, ma_hand_box, ma_hand_boxes
+from .judge import HEAD_FLOOR, HEAD_MIN, HEAD_SLACK, ma_hand_box, ma_hand_boxes
 from .lock import ma_leg_tones, ma_lock
 from .mannequin import ma_depth
 from .sheet import ma_loop_gif, ma_meta, ma_review_sheet, ma_sheet, ma_sprites, ma_strip_gif
@@ -137,6 +137,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     path = out / f"{req.kind}_report.json"
     report = {r["frame"]: r for r in (json.loads(path.read_text(encoding="utf-8")) if path.exists() else [])}
     dnames = {}
+    head_min = [HEAD_MIN]
 
     def draw(i, sd, ref=None, start=None, mask=None, denoise=HAND_FIX):
         """Frame i at seed sd, drawn (or, given a start picture, made sharp from it; given a mask too, drawn again
@@ -166,7 +167,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
                 likeness = getattr(judge, "head_likeness", None)      # a judge of one's own may not have it
                 like = likeness(Image.open(frame), ref_im) if likeness else None
                 if like is not None:
-                    ok = like >= HEAD_MIN
+                    ok = like >= head_min[0]
                     verdict += f"; head {like:.2f}" + ("" if ok else " (another person)")
         log(f"frame {i} seed {sd}: {said}" + (f", judge {verdict!r}" if verdict else "") + (" ok" if ok else " again"))
         return ok, said, verdict
@@ -257,6 +258,12 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     starts, look = {}, None
     if req.engine == "video" and only is None and use_seed is None:
         draw_frame(0)
+        # how like the picture this person's own drawn frame 0 came out sets the bar for the rest: a man with a shaved
+        # head, the same man in every frame by eye, scored 0.85-0.91 against his picture (a bald crown says little)
+        # and failed every seed; a face turned into another person scores 0.51-0.65, hair over the face 0.83-0.87
+        got = re.findall(r"head ([0-9.]+)", report[0].get("judge") or "")
+        if report[0]["passed"] and got:
+            head_min[0] = max(HEAD_FLOOR, min(HEAD_MIN, float(got[-1]) - HEAD_SLACK))
         if report[0]["passed"]:
             starts = ma_video_starts(req, comfy, depths, raw, log)
             # the cycle again from the video's own frame 0 made sharp: from frame 0 as drawn alone the video drew a

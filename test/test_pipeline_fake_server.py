@@ -486,3 +486,36 @@ def test_video_frame_of_another_person_is_drawn_on_its_own(tmp_path):
     assert row["passed"] and row["engine"] == "frames" and len(row["tried"]) == 2, lines
     assert any("another person" in s for s in lines)
     assert not any("hands drawn again" in s for s in lines)              # a hand fix does not make him himself
+
+
+def test_head_bar_follows_the_persons_own_frame_0(tmp_path):
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    class Judge:
+        """Frame 0 scores 0.92 against the picture, every frame after it 0.90 (a shaved head: little to compare)."""
+        def __init__(self):
+            self.n = 0
+
+        def arms_ok(self, im, kind, hands=None):
+            return True, "hands 2; near hand there"
+
+        def feet_ok(self, im):
+            return True, "2"
+
+        def head_likeness(self, im, ref):
+            self.n += 1
+            return 0.92 if self.n == 1 else 0.90
+
+        def facing(self, im):
+            return "right"
+    try:
+        ref = tmp_path / "person.png"
+        Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
+        lines = []
+        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120),
+                            MaComfy(f"http://127.0.0.1:{srv.server_port}"), judge=Judge(), log=lines.append)
+    finally:
+        srv.shutdown()
+    assert all(r["passed"] and r["engine"] == "video" for r in res["report"]), lines
+    assert not any("another person" in s for s in lines)

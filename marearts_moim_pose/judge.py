@@ -152,6 +152,7 @@ class MaJudge:
 # to 0.87-0.90 and 63 frames that were the person (him and a girl, walking and with a box, drawn either way) to
 # 0.93-0.98; a bigger crop took in the collar or a carried box and the two overlapped (11-04).
 HEAD_MIN = 0.915
+HEAD_SLACK, HEAD_FLOOR = 0.03, 0.85        # the bar from the person's own frame 0 (pipeline): its score less this, not under
 HEAD_CROP = (0.25, 0.03, 0.85, 0.30)
 
 
