@@ -203,17 +203,20 @@ def ma_lock(frames: list[np.ndarray], phases: list[float], pts: list[dict], dept
 
 
 def ma_colour_match(frames: list[np.ndarray], ref: np.ndarray, k: float = 0.5,
-                    keep: list | None = None) -> list[np.ndarray]:
-    """Each frame's colours brought k of the way to the person's picture, channel by channel in Lab, percentile to
-    percentile over the figure (ref: the picture's figure pixels, RGB, N x 3). A video drew a yellow cardigan pale
-    (saturation 0.52-0.59 for 0.71) and made sharp it stayed so; at k 1 skin came out too pink, at 0.5 the cardigan
-    and skirt read as the picture's (11-05). keep: per frame, a mask of pixels left as drawn (a carried box)."""
+                    keep: list | None = None, groups: int = 8) -> list[np.ndarray]:
+    """Each frame's colours brought k of the way to the person's picture, colour by colour: the picture's colours in
+    `groups` groups (k-means in Lab), each pixel moved by its nearest groups' differences between the frame and the
+    picture, softly. A video drew a yellow cardigan pale (saturation 0.52-0.59 for 0.71) and made sharp it stayed so;
+    all the colours matched together by percentile put a red blouse's red into her legs (11-05). keep: per frame, a
+    mask of pixels left as drawn (a carried box)."""
+    from scipy.cluster.vq import kmeans2
     from skimage import color
     if len(ref) < 100:                                     # no figure in the picture to match to
         return [f.copy() for f in frames]
     r = color.rgb2lab(ref.reshape(-1, 1, 3)[..., :3] / 255.0).reshape(-1, 3)
-    qs = np.linspace(0, 100, 101)
-    rq = [np.percentile(r[:, c], qs) for c in range(3)]
+    rng = np.random.default_rng(0)
+    sample = r[rng.choice(len(r), min(len(r), 20000), replace=False)]
+    centres, _ = kmeans2(sample, groups, minit="++", seed=0)
     out = []
     for i, f in enumerate(frames):
         m = f[..., 3] > 128
@@ -223,9 +226,16 @@ def ma_colour_match(frames: list[np.ndarray], ref: np.ndarray, k: float = 0.5,
             out.append(f.copy())
             continue
         lab = color.rgb2lab(f[..., :3] / 255.0)
-        for c in range(3):
-            src = lab[..., c][m]
-            lab[..., c][m] = src * (1 - k) + np.interp(src, np.percentile(src, qs), rq[c]) * k
+        px = lab[m]
+        d = np.linalg.norm(px[:, None, :] - centres[None], axis=-1)
+        near = d.argmin(1)
+        shift = np.zeros_like(centres)
+        for j in range(groups):                            # the frame's own mean of each group, to the picture's
+            if (near == j).sum() > 50:
+                shift[j] = centres[j] - px[near == j].mean(0)
+        w = np.exp(-((d - d.min(1, keepdims=True)) ** 2) / (2 * 8.0 ** 2))
+        w /= w.sum(1, keepdims=True)
+        lab[m] = px + k * (w @ shift)
         o = f.copy()
         o[..., :3][m] = (np.clip(color.lab2rgb(lab), 0, 1) * 255).round().astype(np.uint8)[m]
         out.append(o)
