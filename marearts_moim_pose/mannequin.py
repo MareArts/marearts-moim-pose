@@ -19,6 +19,7 @@ COLOURS = [(255, 0, 0), (255, 85, 0), (255, 170, 0), (255, 255, 0), (170, 255, 0
            (0, 255, 85), (0, 255, 170), (0, 255, 255), (0, 170, 255), (0, 85, 255), (0, 0, 255), (85, 0, 255),
            (170, 0, 255), (255, 0, 255), (255, 0, 170), (255, 0, 85)]
 FAR, BODY, HEAD, CHEST, BOX, NEAR = 70, 150, 165, 158, 200, 225     # depth values: brighter is nearer
+SKIRT = 190                                                          # a skirt: over both thighs, under the near arm
 
 
 def ma_skeleton(pts: dict) -> Image.Image:
@@ -46,7 +47,7 @@ def ma_skeleton(pts: dict) -> Image.Image:
 
 
 def ma_depth(pts: dict, head: float = 0.19, box: bool = False, bust: float = 0.0,
-             seat: float = 0.06) -> Image.Image:
+             seat: float = 0.06, skirt: float = 0.0) -> Image.Image:
     """The depth mannequin of a pose (RGB, near bright, far dark).
 
     head: head width as a share of the height. Use the person's own (a big anime head with hair is about 0.19), or
@@ -57,6 +58,9 @@ def ma_depth(pts: dict, head: float = 0.19, box: bool = False, bust: float = 0.0
     over it). With the thigh drawn over the body, a video drew the trousers' seat where an older man's jacket hangs
     behind his hips, in four frames of twelve with the near leg back; with the seat over it, his jacket covered his
     hips in all twelve (11-04).
+    skirt: where a skirt or dress ends, along the leg (0 none, 1 the knee, 2 the ankle; ma_skirt_of reads it from the
+    words). The legs alone, split at the hip, made a video draw shorts or trousers for a skirt to the knee, a pleated
+    skirt cut to mid-thigh, and the near thigh showing through the cloth (11-05); the skirt over both thighs keeps it.
     """
     from scipy import ndimage
     im = Image.new("L", (W, H))
@@ -104,11 +108,45 @@ def ma_depth(pts: dict, head: float = 0.19, box: bool = False, bust: float = 0.0
         leg(LHIP, NEAR)
         r = 0.08 * s
         d.ellipse([hip[0] - r, hip[1] - r, hip[0] + r, hip[1] + seat * s], fill=BODY)
-        arm(LSHO, NEAR)
     else:
-        side(LHIP, LSHO, NEAR)
+        leg(LHIP, NEAR)
+    if skirt:
+        d.polygon(ma_skirt_outline(pts, skirt), fill=SKIRT)
+    arm(LSHO, NEAR)
     a = ndimage.gaussian_filter(np.asarray(im, np.float32), 3)
     return Image.fromarray(a.clip(0, 255).astype(np.uint8)).convert("RGB")
+
+
+SKIRT_WORDS = ((("maxi", "floor", "ankle", "long skirt", "long dress"), 1.85), (("midi", "calf", "below the knee"), 1.4),
+               (("mini", "short skirt", "mid-thigh", "above the knee"), 0.7))
+
+
+def ma_skirt_of(look: str) -> float:
+    """Where the skirt or dress in a person's words ends (ma_depth's skirt): 0 with none, the knee unless they say."""
+    w = look.lower()
+    if not any(k in w for k in ("skirt", "dress", "gown", "kilt")):
+        return 0.0
+    return next((v for keys, v in SKIRT_WORDS if any(k in w for k in keys)), 1.05)
+
+
+def ma_skirt_hem(pts: dict, skirt: float) -> tuple[float, float, float]:
+    """A skirt's hem: (back x, front x, y). The hem spans both legs where they are `skirt` along their length."""
+    def along(hip_i):
+        hp, kn, an = pts[hip_i], pts[hip_i + 1], pts[hip_i + 2]
+        a, b, f = (hp, kn, skirt) if skirt <= 1 else (kn, an, skirt - 1)
+        return a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1])
+    (x0, y0), (x1, y1) = along(LHIP), along(RHIP)
+    room = 0.055 * FIG + 0.03 * FIG * min(skirt, 1.5)        # the cloth stands off the legs, more the longer it is
+    return min(x0, x1) - room, max(x0, x1) + room, max(y0, y1)
+
+
+def ma_skirt_outline(pts: dict, skirt: float) -> list[tuple[float, float]]:
+    """The skirt from the waist (the body's width) to its hem, as a polygon."""
+    hip = ((pts[LHIP][0] + pts[RHIP][0]) / 2, pts[LHIP][1])
+    back, front, y = ma_skirt_hem(pts, skirt)
+    w = 0.08 * FIG
+    top = hip[1] - 0.06 * FIG
+    return [(hip[0] - w, top), (hip[0] + w, top), (front, y), (back, y)]
 
 
 def ma_box_rect(pts: dict) -> tuple[float, float, float, float]:

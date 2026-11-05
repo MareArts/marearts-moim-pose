@@ -240,3 +240,62 @@ def test_far_leg_shaded_evenly_to_the_hem_and_nothing_else():
     assert lum(toned, x, y) == lum(f, x, y)
     sx, sy = (int(v) for v in pts[LSHO + 1])                        # the near elbow (skin colour too): as drawn
     assert lum(toned, sx, sy) == lum(f, sx, sy)
+
+
+def test_far_leg_shaded_in_its_own_colour_and_white_stays_white():
+    from marearts_moim_pose.gait import FIG, RKNE
+    from marearts_moim_pose.lock import ma_leg_tones
+    pts = ma_walk_points(0.0)
+    d = ma_depth(pts)
+    a = np.asarray(d.convert("L")) > 20
+    f = np.zeros(a.shape + (4,), np.uint8)
+    f[a] = (245, 222, 210, 255)                                   # pale skin
+    floor = np.nonzero(a.any(1))[0].max()
+    f[floor - int(0.04 * FIG):][a[floor - int(0.04 * FIG):]] = (250, 250, 250, 255)      # white shoes
+    toned = ma_leg_tones([f], [d], 0.9, [pts])[0]
+    rk, ra = pts[RKNE], pts[RKNE + 1]
+    x, y = int((rk[0] + ra[0]) / 2), int((rk[1] + ra[1]) / 2)    # the far shin
+    was, now = f[y, x, :3].astype(float), toned[y, x, :3].astype(float)
+    sat = lambda c: (c.max() - c.min()) / c.max()
+    assert now.mean() < was.mean() - 5                            # shaded
+    assert sat(now) > sat(was)                                    # deeper skin, not grey (scaled, 0.75 read grey)
+    shoes = toned[..., :3][f[..., 0] == 250].astype(float)
+    assert len(shoes) and shoes.min() > 235                       # a white shoe stays white, the far one too
+
+
+def test_skirt_read_from_the_words():
+    from marearts_moim_pose.mannequin import ma_skirt_of
+    assert ma_skirt_of("a white pencil skirt to the knee, red pumps") == ma_skirt_of("a navy pleated skirt") == 1.05
+    assert ma_skirt_of("khaki trousers, brown boots") == 0 == ma_skirt_of("denim shorts")
+    assert ma_skirt_of("a long maxi dress") > 1.5 and ma_skirt_of("a mini skirt") < 1
+
+
+def test_mannequin_skirt_covers_both_thighs_to_the_hem():
+    from marearts_moim_pose.gait import FIG, LHIP, LKNE, RHIP
+    from marearts_moim_pose.mannequin import SKIRT, ma_skirt_hem
+    pts = ma_walk_points(0.0)                                     # legs apart
+    d = np.asarray(ma_depth(pts, skirt=1.05).convert("L")).astype(int)
+    bare = np.asarray(ma_depth(pts).convert("L")).astype(int)
+    f = 0.85                                                      # low on the thigh: one piece of cloth, front leg
+    y = int(pts[LHIP][1] + f * (pts[LKNE][1] - pts[LHIP][1]))      # to back
+    xs = sorted(int(pts[h][0] + f * (pts[h + 1][0] - pts[h][0])) for h in (LHIP, RHIP))
+    assert (abs(d[y, xs[0]:xs[1] + 1] - SKIRT) < 12).all()
+    assert (bare[y, xs[0]:xs[1]] < 30).sum() > 20                 # without it the legs split there
+    hem = ma_skirt_hem(pts, 1.05)[2]
+    below = int(hem + 0.04 * FIG)
+    assert (d[below] < 30).any() and abs(d[below] - bare[below]).max() < 5        # under the hem: the legs alone
+
+
+def test_leg_tones_leave_the_skirt_as_drawn():
+    from marearts_moim_pose.gait import FIG, LHIP, LKNE
+    from marearts_moim_pose.lock import ma_leg_tones
+    from marearts_moim_pose.mannequin import ma_skirt_hem
+    pts = ma_walk_points(0.0)
+    d = ma_depth(pts, skirt=1.05)
+    a = np.asarray(d.convert("L")) > 20
+    hem = int(ma_skirt_hem(pts, 1.05)[2])
+    f = np.zeros(a.shape + (4,), np.uint8)
+    f[a] = (235, 195, 175, 255)
+    f[:hem][a[:hem]] = (40, 50, 110, 255)                           # a navy skirt to the hem
+    toned = ma_leg_tones([f], [ma_depth(pts)], 0.9, [pts], [hem])[0]
+    assert (toned[:hem] == f[:hem]).all()                          # nothing shaded or lit through the skirt

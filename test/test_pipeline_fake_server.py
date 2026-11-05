@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import numpy as np
 from PIL import Image
 
-from marearts_moim_pose.comfy import EXTRA_FIX, HAND_FIX, MaComfy, ma_ui_workflow
+from marearts_moim_pose.comfy import EXTRA_FIX, HAND_FIX, HEAD_FIX, MaComfy, ma_ui_workflow
 from marearts_moim_pose.judge import ma_frame_box, ma_hand_boxes, ma_verdict
 from marearts_moim_pose.pipeline import MaRequest, ma_draw_cycle
 
@@ -110,7 +110,8 @@ def test_cycle_end_to_end(tmp_path):
     try:
         ref = tmp_path / "person.png"
         Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
-        req = MaRequest(reference=ref, out=tmp_path / "out", name="test", height=200)
+        # the fake draws the legs in the mannequin's light only: told apart for the same-foot check by a strong shade
+        req = MaRequest(reference=ref, out=tmp_path / "out", name="test", height=200, far_shade=0.55)
         lines = []
         res = ma_draw_cycle(req, MaComfy(f"http://127.0.0.1:{srv.server_port}"), log=lines.append)
     finally:
@@ -322,7 +323,7 @@ def test_cycle_drawn_as_a_video_then_made_sharp(tmp_path):
     try:
         ref = tmp_path / "person.png"
         Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
-        res = ma_draw_cycle(MaRequest(reference=ref, out=tmp_path / "out", name="t", height=120),
+        res = ma_draw_cycle(MaRequest(reference=ref, out=tmp_path / "out", name="t", height=120, far_shade=0.55),
                             MaComfy(f"http://127.0.0.1:{srv.server_port}"), log=lambda s: None)
         frames = MaRequest(reference=ref, out=tmp_path).frames
         assert Fake.calls.count("video") == 2                            # again from its own frame 0 made sharp
@@ -370,7 +371,7 @@ def test_video_frame_that_lost_a_hand_gets_the_hands_drawn_again(tmp_path):
         srv.shutdown()
     row = next(r for r in res["report"] if r["frame"] == 2)
     assert row["passed"] and row["engine"] == "video" and len(row["tried"]) == 2, lines
-    assert any("frame 2" in s and "hands drawn again" in s for s in lines)
+    assert any("frame 2" in s and "mended (near)" in s for s in lines)
 
 
 def test_extra_hand_is_the_box_away_from_both_wrists():
@@ -420,18 +421,19 @@ def test_video_frame_with_a_hand_too_many_gets_it_drawn_over(tmp_path):
     assert ("fix", EXTRA_FIX) in Fake.calls and ("fix", HAND_FIX) not in Fake.calls
 
 
-def test_video_frame_kept_when_drawn_on_its_own_fails_too(tmp_path):
+def test_video_frame_kept_when_its_mend_fails_too(tmp_path):
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
+    Fake.calls.clear()
 
     class Judge:
-        """Frame 2 fails every way: made sharp (1), its hands drawn again (6), drawn on its own (6)."""
+        """Frame 2 fails every way: made sharp (1), its hands drawn again (6). Never drawn on its own."""
         def __init__(self):
             self.n = 0
 
         def arms_ok(self, im, kind, hands=None):
             self.n += 1
-            bad = 5 <= self.n <= 17
+            bad = 5 <= self.n <= 11
             return (not bad), ("near hand missing" if bad else "2; near hand there")
 
         def feet_ok(self, im):
@@ -448,17 +450,19 @@ def test_video_frame_kept_when_drawn_on_its_own_fails_too(tmp_path):
     finally:
         srv.shutdown()
     row = next(r for r in res["report"] if r["frame"] == 2)
-    assert not row["passed"] and row["engine"] == "video" and len(row["tried"]) == 13, lines   # the video's, kept
+    assert not row["passed"] and row["engine"] == "video" and len(row["tried"]) == 7, lines    # the video's, kept
     assert any("kept the video's frame" in s for s in lines)
     assert all(r["passed"] for r in res["report"] if r["frame"] != 2)
+    assert Fake.calls.count("frame") == 1                       # frame 0 before the video; nothing else on its own
 
 
-def test_video_frame_of_another_person_is_drawn_on_its_own(tmp_path):
+def test_video_frame_of_another_person_gets_the_head_drawn_again(tmp_path):
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
+    Fake.calls.clear()
 
     class Judge:
-        """Frame 2 from the video is someone else (its head unlike the picture's); drawn on its own it is not."""
+        """Frame 2 from the video is someone else (its head unlike the picture's); its head drawn again, it is not."""
         def __init__(self):
             self.n = 0
 
@@ -483,9 +487,10 @@ def test_video_frame_of_another_person_is_drawn_on_its_own(tmp_path):
     finally:
         srv.shutdown()
     row = next(r for r in res["report"] if r["frame"] == 2)
-    assert row["passed"] and row["engine"] == "frames" and len(row["tried"]) == 2, lines
+    assert row["passed"] and row["engine"] == "video" and len(row["tried"]) == 2, lines
     assert any("another person" in s for s in lines)
-    assert not any("hands drawn again" in s for s in lines)              # a hand fix does not make him himself
+    assert any("mended (head)" in s for s in lines)                     # the head, in the clothes the video drew
+    assert ("fix", HEAD_FIX) in Fake.calls and Fake.calls.count("frame") == 1
 
 
 def test_head_bar_follows_the_persons_own_frame_0(tmp_path):
@@ -519,3 +524,16 @@ def test_head_bar_follows_the_persons_own_frame_0(tmp_path):
         srv.shutdown()
     assert all(r["passed"] and r["engine"] == "video" for r in res["report"]), lines
     assert not any("another person" in s for s in lines)
+
+
+def test_head_box_holds_the_mannequins_head_and_hair():
+    from marearts_moim_pose.gait import FIG, NECK_I, NOSE, ma_walk_points
+    from marearts_moim_pose.mannequin import ma_depth
+    from marearts_moim_pose.pipeline import ma_head_box
+    pts = ma_walk_points(0.0)
+    x0, y0, x1, y1 = ma_head_box(pts)
+    d = np.asarray(ma_depth(pts).convert("L"))
+    head = d[:int(pts[NECK_I][1])] > 30
+    ys, xs = np.nonzero(head)
+    assert x0 <= xs.min() and xs.max() <= x1 and y0 <= ys.min() and ys.max() <= y1          # all of the head
+    assert y1 < pts[NECK_I][1] + 0.05 * FIG and x0 < pts[NOSE][0] < x1                       # and not the body

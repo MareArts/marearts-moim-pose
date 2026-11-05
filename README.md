@@ -113,7 +113,7 @@ moim-pose finish --out out/alice
 | `--bust` | how far the chest stands out in the mannequin (0.13 for a fuller figure); the silhouette comes from the depth |
 | `--change` | the one thing to draw differently from the picture |
 | `--height` | sprite height in px (default 256, 0 = full 832 x 1216 frame) |
-| `--far-shade` | how bright the far leg is against the near one (default 0.55; 1 = legs as drawn) |
+| `--far-shade` | how bright the far leg is against the near one, shaded deeper in its own colour (default 0.9; 1 = legs as drawn) |
 | `--facing` | `auto` (default), `right`, or `left` (the picture is mirrored to face right) |
 | `--alternate` | draw again a frame that leads with the same leg as the frame half a cycle away (off by default: the leg tones fix it, new seeds rarely do) |
 

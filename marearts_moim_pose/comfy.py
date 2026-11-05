@@ -253,6 +253,10 @@ HAND_FIX = 0.7
 # box and the sleeve above it, the rest kept; at 70 % a brown stub of the sleeve stayed under the hem. One seed of
 # three left the trousers clean, the judge sent the other two back (11-04).
 EXTRA_FIX = 0.85
+# A head the video drew as another person (a girl's curly bob drawn straight and over her face): drawn again from 85 %
+# of the noise in the mannequin's head and hair, from frame 0's look, the clothes below kept as the video drew them;
+# drawn whole on its own instead, a frame came out in another skirt or another cardigan (11-05).
+HEAD_FIX = 0.85
 
 
 def ma_hand_fix_graph(depth_image: str, ref_image: str, start_image: str, mask_image: str, prompt: str,

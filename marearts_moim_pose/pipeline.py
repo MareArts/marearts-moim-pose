@@ -24,14 +24,14 @@ from PIL import Image
 
 from .checks import (FACING_SURE, ma_alternate_reason, ma_alternates, ma_clothes_change, ma_cutout,
                      ma_facing, ma_frame_ok)
-from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, HAND_FIX, STYLE, VIDEO_H, VIDEO_W, WALK,
+from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, HAND_FIX, HEAD_FIX, STYLE, VIDEO_H, VIDEO_W, WALK,
                     MaComfy, ma_arm_words,
                     ma_cutout_graph, ma_hand_fix_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt,
                     ma_sharpen_graph, ma_video_graph)
 from .gait import LSHO, RSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
 from .judge import HEAD_FLOOR, HEAD_MIN, HEAD_SLACK, ma_hand_box, ma_hand_boxes
 from .lock import ma_leg_tones, ma_lock
-from .mannequin import ma_depth
+from .mannequin import ma_depth, ma_skirt_hem, ma_skirt_of
 from .sheet import ma_loop_gif, ma_meta, ma_review_sheet, ma_sheet, ma_sprites, ma_strip_gif
 
 NEIGHBOUR_TRIES = 3     # an older man's arm half way back: 12 seeds failed from his picture, 1 in 3 from frame 1
@@ -88,9 +88,10 @@ class MaRequest:
     seed: int = 7
     head: float = 0.19                   # head width / height of the person in the picture
     bust: float = 0.0
+    skirt: float | None = None           # where a skirt ends along the leg (ma_depth); None: read from the look
     height: int | None = 256             # sprite height in px (None: full size)
     fps: int = 12                      # one cycle a second at 12 frames
-    far_shade: float = 0.55              # the far leg's brightness against the near one's (1: legs as drawn)
+    far_shade: float = 0.9               # the far leg's brightness against the near one's (1: legs as drawn)
     # draw again a frame on the same foot as the one half a cycle away. Off: the model draws the leg behind darker
     # whichever it is, so new seeds rarely help (0 of 18 on Rin's walk); the leg tones fix what shows.
     alternate: bool = False
@@ -123,7 +124,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     carry = req.kind == "carry"
     phases = ma_frame_phases(req.frames, req.gait)
     pts = [ma_walk_points(t, req.gait, carry=carry) for t in phases]
-    depths = [ma_depth(p, head=req.head, box=carry, bust=req.bust) for p in pts]
+    depths = [ma_depth(p, head=req.head, box=carry, bust=req.bust, skirt=ma_skirt(req)) for p in pts]
     widest = max(abs(p[LSHO + 1][0] - p[LSHO][0]) for p in pts)
     prompts = [ma_prompt(req.look, req.kind, change=req.change, arms="" if carry else ma_arm_words(p, widest))
                for p in pts]
@@ -181,54 +182,42 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         # drawn again (a person did not like it): never a seed this frame already had, or the same picture comes back
         tried = report.get(i, {}).get("tried", [])
         seeds = [use_seed] if use_seed is not None else [s for s in ma_seeds(req.seed) if s not in tried][:tries]
-        ok, frm, kept, alone = False, None, None, False
+        ok, frm = False, None
         if i in starts:
             sd = seeds[0]
             tried = tried + ([sd] if sd not in tried else [])
             ok, said, verdict = draw(i, sd, look, start=starts[i])
-            # the video lost a hand: drawn again where the mannequin has the hands; it drew one too many: drawn over
-            # where that one is. The rest of the frame is kept either way.
-            # a lost hand is drawn in the mannequin's hand crop alone: grown by 30 % it took in the hem and the pocket
+            # A frame of the video is only ever mended where it failed, never drawn again whole: drawn on its own from
+            # the picture, frames came out in another skirt, shorts for a skirt or another cardigan, 4 to 12 frames
+            # of twelve on four people of eight (11-05). The video lost a hand: drawn again where the mannequin has
+            # it; drew one too many: drawn over where that one is; drew another person's head: the head drawn again.
+            # A lost hand is drawn in the mannequin's hand crop alone: grown by 30 % it took in the hem and the pocket
             # by the hip, and an older man's frame came out with another hem than its neighbours (11-04)
-            fix, dz, grow = ({}, HAND_FIX, 0.0) if ok else (hands[i], HAND_FIX, 0.0) if hands[i] and "missing" in \
-                verdict else (ma_extra_hands(ma_hand_boxes(verdict), pts[i]), EXTRA_FIX, 0.3)
+            fix, dz, grow = ma_video_fix(verdict, hands[i], pts[i], req.head) if not ok else ({}, HAND_FIX, 0.0)
             if fix:
+                keep = {p: p.read_bytes() for p in (raw / f"{req.kind}_{i}.png", raw / f"{req.kind}_{i}_mask.png")}
+                kept = (sd, said, verdict)
                 sharp = comfy.upload(Image.open(raw / f"{req.kind}_{i}.png").convert("RGB"),
                                      f"{req.name}_{req.kind}_sharp_{i}.png")
-                mask = comfy.upload(ma_hands_mask(fix, grow), f"{req.name}_{req.kind}_hands_{i}.png")
+                mask = comfy.upload(ma_hands_mask(fix, grow), f"{req.name}_{req.kind}_fix_{i}.png")
                 for sd in [x for x in ma_seeds(req.seed) if x not in tried][:tries]:
                     tried = tried + [sd]
                     ok, said, verdict = draw(i, sd, look, start=sharp, mask=mask, denoise=dz)
                     if ok:
-                        log(f"frame {i} seed {sd}: the hands drawn again, ok")
+                        log(f"frame {i} seed {sd}: mended ({', '.join(fix)}), ok")
                         break
+                if not ok:              # the video's own frame, made sharp, for a person's look
+                    for p, data in keep.items():
+                        p.write_bytes(data)
+                    sd, said, verdict = kept
+            if not ok:
+                log(f"frame {i}: kept the video's frame (seed {sd}); look at it")
         else:
             for sd in seeds:
                 tried = tried + ([sd] if sd not in tried else [])
                 ok, said, verdict = draw(i, sd)
                 if ok:
                     break
-        if not ok and i in starts:
-            lost = "missing" in verdict          # only a hand the video lost is worth keeping it for
-            # drawn on its own only if that passes: an arm half way back failed both ways on every seed, and a frame
-            # drawn on its own broke the one look of the cycle (clothes change 6.9 -> 11.1, 11-03); the video's
-            # frame is kept then, failed, for a person's look
-            keep = {p: p.read_bytes() for p in (raw / f"{req.kind}_{i}.png", raw / f"{req.kind}_{i}_mask.png")}
-            kept = (sd, said, verdict)
-            log(f"frame {i}: no sharp frame from the video passed, drawn on its own")
-            for sd in [x for x in ma_seeds(req.seed) if x not in tried][:tries]:
-                tried = tried + [sd]
-                ok, said, verdict = draw(i, sd)
-                if ok:
-                    kept, alone = None, True
-                    break
-            if not ok and lost:
-                for p, data in keep.items():
-                    p.write_bytes(data)
-                sd, said, verdict = kept
-                log(f"frame {i}: kept the video's frame (seed {sd}); look at it")
-            elif not ok:
-                kept = None
         # every seed drew the hand where the standing picture has it (an arm half way back): the frame is drawn from
         # a neighbour that passed instead, whose arm is already near; one step only, so the look does not drift
         if not ok and judge is not None and use_seed is None and i not in starts:
@@ -251,7 +240,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
             log(f"frame {i}: every seed failed, look at {raw / f'{req.kind}_{i}.png'}")
         report[i] = dict(frame=i, seed=sd, tried=tried, passed=ok, checks=ok, measured=said, judge=verdict,
                          seconds=round(time.time() - t0),
-                         engine="video" if i in starts and not alone else "frames",
+                         engine="video" if i in starts else "frames",
                          **({"from_frame": frm} if frm is not None else {}))
 
     drawn = list(only) if only is not None else list(range(req.frames))
@@ -329,6 +318,24 @@ def ma_extra_hands(boxes: list, pts: dict) -> dict:
     return {f"extra{k}": (b[0], b[1] - (b[3] - b[1]), b[2], b[3]) for k, b in enumerate(left)}
 
 
+def ma_head_box(pts: dict, head: float = 0.19) -> tuple[int, int, int, int]:
+    """The mannequin's head with room for the hair around it (frame pixels)."""
+    from .gait import FIG, NOSE
+    hx, hy, hw = pts[NOSE][0] - 0.05 * FIG, pts[NOSE][1] - 0.01 * FIG, head * FIG
+    r, b = hx + 0.065 * FIG, hy + 0.07 * FIG
+    return int(r - 1.2 * hw), int(b - 1.25 * hw), int(r + 0.05 * FIG), int(b + 0.02 * FIG)
+
+
+def ma_video_fix(verdict: str, hands: dict, pts: dict, head: float = 0.19) -> tuple[dict, float, float]:
+    """Where a failed video frame is drawn again, how strongly and how far the boxes grow: ({name: box}, denoise,
+    grow); no boxes when the judge named nothing to mend (the video's frame is kept then, for a person's look)."""
+    if "another person" in verdict:
+        return {"head": ma_head_box(pts, head)}, HEAD_FIX, 0.0
+    if hands and "missing" in verdict:
+        return hands, HAND_FIX, 0.0
+    return ma_extra_hands(ma_hand_boxes(verdict), pts), EXTRA_FIX, 0.3
+
+
 def ma_hands_mask(boxes: dict, grow: float = 0.3) -> Image.Image:
     """White where the hands must be (the judge's crops, grown by `grow` each way, edges soft), black elsewhere."""
     from PIL import ImageDraw, ImageFilter
@@ -399,18 +406,26 @@ def ma_seeds(seed: int) -> list[int]:
     return [seed + off for off in SEEDS] + [seed + 100 + 37 * k for k in range(40)]
 
 
+def ma_skirt(req: MaRequest) -> float:
+    """Where the person's skirt ends along the leg (0: none): as asked, or from the words of the look."""
+    return ma_skirt_of(req.look) if req.skirt is None else req.skirt
+
+
 def ma_finish(req: MaRequest, phases=None, pts=None, depths=None) -> dict:
     """Cut out, lock and write the outputs from the raw frames already in req.out/raw."""
     out, raw = Path(req.out), Path(req.out) / "raw"
     carry = req.kind == "carry"
     phases = phases or ma_frame_phases(req.frames, req.gait)
     pts = pts or [ma_walk_points(t, req.gait, carry=carry) for t in phases]
-    depths = depths or [ma_depth(p, head=req.head, box=carry, bust=req.bust) for p in pts]
+    depths = depths or [ma_depth(p, head=req.head, box=carry, bust=req.bust, skirt=ma_skirt(req)) for p in pts]
     cut = [ma_cutout(Image.open(raw / f"{req.kind}_{i}.png"), Image.open(raw / f"{req.kind}_{i}_mask.png"))
            for i in range(req.frames)]
     locked = ma_lock(cut, phases, pts, depths)
     if req.far_shade < 1:
-        locked = ma_leg_tones(locked, depths, req.far_shade, pts)
+        # the legs told apart on the mannequin without the skirt, from its hem down
+        skirt = ma_skirt(req)
+        bare = [ma_depth(p, head=req.head, box=carry, bust=req.bust) for p in pts] if skirt else depths
+        locked = ma_leg_tones(locked, bare, req.far_shade, pts, [ma_skirt_hem(p, skirt)[2] for p in pts] if skirt else None)
     for i, f in enumerate(locked):
         Image.fromarray(f).save(out / f"{req.kind}_{i}.png")
     path = out / f"{req.kind}_report.json"
