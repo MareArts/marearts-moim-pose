@@ -144,13 +144,31 @@ def ma_leg_tones(frames: list[np.ndarray], depths: list, k: float = 0.9, pts: li
             continue
         # the near leg brought up only where the model drew it darker than the far one, and only to the far one's
         # light: lit to the cycle's usual brightness up to the hip, a near leg on bare skin blew out to white (11-04)
-        g = 1 + n * (np.clip(lf / ln, 1.0, 2.2) - 1)
-        q = np.log(np.clip(k * lit / lf, 0.3, 2.0)) / np.log(min(lf / 255, 0.97))     # the far leg's mean to k * lit
-        c = (f[..., :3] * g[..., None]).clip(0, 255) / 255
+        # both to a power of their own colour, the power found so the leg's mean lands where it should: scaled up, a
+        # pale patch on a girl's near shin went white (11-05)
+        c = f[..., :3] / 255
+        a = f[..., 3] > 128
+        qn = _ma_power_to(c[(n > 0.8) & a], min(lf, 2.2 * ln)) if lf > ln else 0.0  # the near leg's mean to lf
+        q = _ma_power_to(c[(fa > 0.8) & a], float(np.clip(k * lit, 0.3 * lf, 2.0 * lf)))  # the far's to k * lit
         o = f.copy()
-        o[..., :3] = (255 * c ** (1 + q * fa[..., None])).clip(0, 255).round().astype(np.uint8)
+        o[..., :3] = (255 * c ** (1 + qn * n[..., None] + q * fa[..., None])).clip(0, 255).round().astype(np.uint8)
         out.append(o)
     return out
+
+
+def _ma_power_to(px: np.ndarray, target: float) -> float:
+    """q such that the pixels (RGB 0..1, N x 3) to the power 1 + q have the mean grey `target` (0..255)."""
+    if len(px) < 20:
+        return 0.0
+    w = np.array([0.299, 0.587, 0.114])
+    lo, hi = -0.8, 4.0
+    for _ in range(30):
+        q = (lo + hi) / 2
+        if float((np.clip(px, 1e-4, 1) ** (1 + q) @ w).mean()) * 255 > target:
+            lo = q
+        else:
+            hi = q
+    return (lo + hi) / 2
 
 
 def ma_lock(frames: list[np.ndarray], phases: list[float], pts: list[dict], depths: list, master: int = 0,
@@ -181,4 +199,34 @@ def ma_lock(frames: list[np.ndarray], phases: list[float], pts: list[dict], dept
         w = np.stack([ndimage.map_coordinates(a[..., c], [Y[:, None] + 0 * xx, X], order=1, cval=0.0)
                       for c in range(4)], -1)
         out.append(w.clip(0, 255).round().astype(np.uint8))
+    return out
+
+
+def ma_colour_match(frames: list[np.ndarray], ref: np.ndarray, k: float = 0.5,
+                    keep: list | None = None) -> list[np.ndarray]:
+    """Each frame's colours brought k of the way to the person's picture, channel by channel in Lab, percentile to
+    percentile over the figure (ref: the picture's figure pixels, RGB, N x 3). A video drew a yellow cardigan pale
+    (saturation 0.52-0.59 for 0.71) and made sharp it stayed so; at k 1 skin came out too pink, at 0.5 the cardigan
+    and skirt read as the picture's (11-05). keep: per frame, a mask of pixels left as drawn (a carried box)."""
+    from skimage import color
+    if len(ref) < 100:                                     # no figure in the picture to match to
+        return [f.copy() for f in frames]
+    r = color.rgb2lab(ref.reshape(-1, 1, 3)[..., :3] / 255.0).reshape(-1, 3)
+    qs = np.linspace(0, 100, 101)
+    rq = [np.percentile(r[:, c], qs) for c in range(3)]
+    out = []
+    for i, f in enumerate(frames):
+        m = f[..., 3] > 128
+        if keep is not None and keep[i] is not None:
+            m &= ~keep[i]
+        if m.sum() < 100:
+            out.append(f.copy())
+            continue
+        lab = color.rgb2lab(f[..., :3] / 255.0)
+        for c in range(3):
+            src = lab[..., c][m]
+            lab[..., c][m] = src * (1 - k) + np.interp(src, np.percentile(src, qs), rq[c]) * k
+        o = f.copy()
+        o[..., :3][m] = (np.clip(color.lab2rgb(lab), 0, 1) * 255).round().astype(np.uint8)[m]
+        out.append(o)
     return out

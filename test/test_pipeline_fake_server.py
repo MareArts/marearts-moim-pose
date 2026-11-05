@@ -210,7 +210,7 @@ def test_same_foot_frame_drawn_again(tmp_path):
         ref = tmp_path / "person.png"
         Image.new("RGB", (300, 700), "white").save(ref)
         lines = []
-        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120,
+        res = ma_draw_cycle(MaRequest(reference=ref, far_shade=0.55, frames=8, out=tmp_path / "out", name="t", height=120,
                                       alternate=True),
                             MaComfy(f"http://127.0.0.1:{srv.server_port}"), log=lines.append)
     finally:
@@ -251,7 +251,7 @@ def test_same_foot_fixed_by_leg_tones_without_redraw(tmp_path):
         ref = tmp_path / "person.png"
         Image.new("RGB", (300, 700), "white").save(ref)
         lines = []
-        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120),
+        res = ma_draw_cycle(MaRequest(reference=ref, far_shade=0.55, frames=8, out=tmp_path / "out", name="t", height=120),
                             MaComfy(f"http://127.0.0.1:{srv.server_port}"), log=lines.append)
     finally:
         srv.shutdown()
@@ -445,7 +445,7 @@ def test_video_frame_kept_when_its_mend_fails_too(tmp_path):
         ref = tmp_path / "person.png"
         Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
         lines = []
-        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120),
+        res = ma_draw_cycle(MaRequest(reference=ref, far_shade=0.55, frames=8, out=tmp_path / "out", name="t", height=120),
                             MaComfy(f"http://127.0.0.1:{srv.server_port}"), judge=Judge(), log=lines.append)
     finally:
         srv.shutdown()
@@ -518,7 +518,7 @@ def test_head_bar_follows_the_persons_own_frame_0(tmp_path):
         ref = tmp_path / "person.png"
         Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
         lines = []
-        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120),
+        res = ma_draw_cycle(MaRequest(reference=ref, far_shade=0.55, frames=8, out=tmp_path / "out", name="t", height=120),
                             MaComfy(f"http://127.0.0.1:{srv.server_port}"), judge=Judge(), log=lines.append)
     finally:
         srv.shutdown()

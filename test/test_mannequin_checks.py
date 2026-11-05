@@ -440,3 +440,32 @@ def test_arms_hang_from_the_middle_of_the_body():
     assert abs(moved[LSHO][0] - mid) < 25 and abs(moved[RSHO][0] - mid) < 25
     assert moved[LSHO + 2][0] - pts[LSHO + 2][0] == moved[LSHO][0] - pts[LSHO][0]     # the whole arm moves
     assert ma_arms_on_body(pts, None) is pts
+
+
+def test_colours_brought_to_the_picture_and_the_box_kept():
+    from marearts_moim_pose.lock import ma_colour_match
+    ref = np.tile(np.array([[235, 180, 20]], np.uint8), (2000, 1))         # the picture: a deep yellow
+    f = np.zeros((100, 100, 4), np.uint8)
+    f[20:80, 20:80] = (240, 220, 140, 255)                                  # drawn pale
+    f[20:40, 20:40] = (150, 110, 70, 255)                                   # a box
+    box = np.zeros((100, 100), bool)
+    box[20:40, 20:40] = True
+    out = ma_colour_match([f], ref, 0.5, [box])[0]
+    sat = lambda c: (int(c.max()) - int(c.min())) / max(1, int(c.max()))
+    assert sat(out[60, 60, :3]) > sat(f[60, 60, :3]) + 0.1                  # deeper, toward the picture
+    assert (out[25, 25] == f[25, 25]).all() and (out[5, 5] == f[5, 5]).all()      # the box and the background kept
+
+
+def test_near_leg_lit_without_blowing_out():
+    from marearts_moim_pose.lock import ma_leg_tones
+    pts = ma_walk_points(0.0)
+    d = ma_depth(pts)
+    a = np.asarray(d.convert("L")) > 20
+    f = np.zeros(a.shape + (4,), np.uint8)
+    f[a] = (200, 160, 140, 255)                                             # both legs, the near one drawn dark
+    dd = np.asarray(d.convert("L"))
+    f[(dd > 130) & a] = (150, 120, 105, 255)
+    f[(dd > 130) & a & (np.arange(a.shape[0])[:, None] % 40 < 6)] = (245, 225, 215, 255)   # pale patches on it
+    toned = ma_leg_tones([f], [d], 0.9, [pts])[0]
+    patch = (dd > 130) & a & (np.arange(a.shape[0])[:, None] % 40 < 6)
+    assert toned[patch][:, :3].min() < 250                                  # lit, not white

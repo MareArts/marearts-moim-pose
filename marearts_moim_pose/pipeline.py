@@ -30,8 +30,8 @@ from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, HAND_
                     ma_sharpen_graph, ma_video_graph)
 from .gait import LSHO, RSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
 from .judge import HEAD_FLOOR, HEAD_MIN, HEAD_SLACK, ma_hand_box, ma_hand_boxes
-from .lock import ma_leg_tones, ma_lock
-from .mannequin import ma_arms_on_body, ma_depth, ma_fit, ma_skirt_at, ma_skirt_flare, ma_skirt_hem, ma_skirt_hem_of, ma_skirt_of
+from .lock import ma_colour_match, ma_leg_tones, ma_lock
+from .mannequin import ma_arms_on_body, ma_box_rect, ma_depth, ma_fit, ma_skirt_at, ma_skirt_flare, ma_skirt_hem, ma_skirt_hem_of, ma_skirt_of
 from .sheet import ma_loop_gif, ma_meta, ma_review_sheet, ma_sheet, ma_sprites, ma_strip_gif
 
 NEIGHBOUR_TRIES = 3     # an older man's arm half way back: 12 seeds failed from his picture, 1 in 3 from frame 1
@@ -94,6 +94,7 @@ class MaRequest:
     height: int | None = 256             # sprite height in px (None: full size)
     fps: int = 12                      # one cycle a second at 12 frames
     far_shade: float = 0.9               # the far leg's brightness against the near one's (1: legs as drawn)
+    colour: float = 0.5                  # how far each frame's colours go to the picture's (0: as drawn)
     # draw again a frame on the same foot as the one half a cycle away. Off: the model draws the leg behind darker
     # whichever it is, so new seeds rarely help (0 of 18 on Rin's walk); the leg tones fix what shows.
     alternate: bool = False
@@ -479,6 +480,21 @@ def ma_finish(req: MaRequest, phases=None, pts=None, depths=None) -> dict:
         bare = [ma_depth(p, box=carry, **{**shape, "skirt": 0}) for p in pts] if skirt else depths
         locked = ma_leg_tones(locked, bare, req.far_shade, pts,
                               [ma_skirt_hem(p, skirt, shape["flare"])[2] for p in pts] if skirt else None)
+    ref_path = raw / "reference.png"
+    if req.colour > 0 and ref_path.exists():
+        from scipy import ndimage
+        from .checks import ma_person
+        refa = np.asarray(Image.open(ref_path).convert("RGB"))
+        figure = ndimage.binary_fill_holes(ma_person((refa < 235).any(-1)))
+        box = None
+        if carry:                                       # the box keeps its own colours (it is not in the picture)
+            box = []
+            for f, p in zip(locked, pts):
+                b = np.zeros(f.shape[:2], bool)
+                x0, y0, x1, y1 = (int(v) for v in ma_box_rect(p))
+                b[max(0, y0 - 20):y1 + 20, max(0, x0 - 20):x1 + 20] = True
+                box.append(b)
+        locked = ma_colour_match(locked, refa[figure], req.colour, box)
     for i, f in enumerate(locked):
         Image.fromarray(f).save(out / f"{req.kind}_{i}.png")
     path = out / f"{req.kind}_report.json"
