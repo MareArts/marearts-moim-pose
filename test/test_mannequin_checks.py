@@ -263,11 +263,30 @@ def test_far_leg_shaded_in_its_own_colour_and_white_stays_white():
     assert len(shoes) and shoes.min() > 235                       # a white shoe stays white, the far one too
 
 
-def test_skirt_read_from_the_words():
+def test_skirt_read_from_the_words_of_that_garment():
     from marearts_moim_pose.mannequin import ma_skirt_of
     assert ma_skirt_of("a white pencil skirt to the knee, red pumps") == ma_skirt_of("a navy pleated skirt") == 1.05
     assert ma_skirt_of("khaki trousers, brown boots") == 0 == ma_skirt_of("denim shorts")
-    assert ma_skirt_of("a long maxi dress") > 1.5 and ma_skirt_of("a mini skirt") < 1
+    assert ma_skirt_of("a long maxi dress") > 1.5 and ma_skirt_of("a short black pencil skirt") < 1
+    assert ma_skirt_of("a rust orange midi skirt, tan ankle boots") == 1.4         # the boots are not the skirt
+    assert ma_skirt_of("a white dress shirt, grey trousers, black dress shoes") == 0
+
+
+def test_skirt_measured_on_the_picture():
+    from marearts_moim_pose.gait import HIP, THIGH
+    from marearts_moim_pose.judge import MaJudge
+    from marearts_moim_pose.mannequin import ma_skirt_at
+    assert abs(ma_skirt_at(1 - HIP + THIGH) - 1) < 1e-6 and ma_skirt_at(0.67) < 0.9 and ma_skirt_at(0.92) > 1.7
+
+    class Judge(MaJudge):
+        def ask(self, im, text):
+            assert "skirt" in text
+            return '[{"bbox_2d": [100, 400, 900, 750], "label": "skirt"}]'
+    im = Image.new("RGB", (300, 700), "white")
+    im.paste(Image.new("RGB", (100, 600), (40, 50, 110)), (100, 50))     # a figure from row 50 to 649
+    hem = Judge().skirt_hem(im)
+    fig_h = 600 + 20                                                     # the crop: 10 px round the figure
+    assert abs(hem - (0.75 * fig_h - 10) / 599) < 0.01
 
 
 def test_mannequin_skirt_covers_both_thighs_to_the_hem():

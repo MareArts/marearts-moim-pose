@@ -17,6 +17,7 @@ import json
 import re
 import urllib.request
 
+import numpy as np
 from PIL import Image
 
 # Asked for a number alone it said 2 on frames with a third hand hanging before the coat (5 of 9 wrong); made to
@@ -50,6 +51,12 @@ HEAD = (0.0, 0.0, 1.0, 0.3)
 ASK_HAND_HERE = ("Look at the middle of this picture. Is a human hand (fingers, a fist or the back of a hand) there? "
                  "Answer yes or no.")
 HAND_BOX, HAND_PAST = 0.05, 0.015        # half the crop's side, its centre past the wrist; shares of the figure
+# Where a skirt ends, on the person's own picture: on the 13 skirts of 50 game characters its box's bottom matched the
+# hem drawn (a short skirt above the knee, one to the ankle that the words called midi, 11-05). Whether there is a
+# skirt at all it got wrong on 4 of 50 (wide trousers boxed as a skirt), so the words say that (ma_skirt_of).
+ASK_SKIRT = ('Find the skirt or dress this person wears. A skirt or dress is one piece of cloth hanging around both '
+             'legs; trousers, jeans, joggers, leggings and shorts are not. Output a JSON list: '
+             '[{"bbox_2d": [x1, y1, x2, y2], "label": "skirt"}], or [] if the person wears none.')
 
 
 def ma_hand_box(pts: dict, wrist: int) -> tuple[int, int, int, int]:
@@ -136,6 +143,21 @@ class MaJudge:
         ans = self.ask(im.convert("RGB").crop((int(w * x0), int(h * y0), int(w * x1), int(h * y1))), ASK_FEET)
         m = re.findall(r"\d+", ans)
         return bool(m) and int(m[-1]) <= 2, ans
+
+    def skirt_hem(self, im: Image.Image) -> float | None:
+        """Where the skirt in a standing picture ends, as a share of the figure's height from the top of the head
+        (None: no skirt found). The picture on a light background."""
+        a = (np.asarray(im.convert("RGB")) < 235).any(-1)
+        ys, xs = np.nonzero(a)
+        if not len(ys):
+            return None
+        top, bot = ys.min(), ys.max()
+        fig = im.convert("RGB").crop((max(0, xs.min() - 10), max(0, top - 10), xs.max() + 10, bot + 10))
+        boxes = ma_hand_boxes(self.ask(fig, ASK_SKIRT))
+        if not boxes:
+            return None
+        hem = max(b[3] for b in boxes) / 1000 * fig.size[1] + max(0, top - 10)
+        return float((hem - top) / max(1, bot - top))
 
     def facing(self, im: Image.Image) -> str:
         """'left', 'right' or '' (no clear answer): which way the person in a standing picture faces."""

@@ -117,16 +117,26 @@ def ma_depth(pts: dict, head: float = 0.19, box: bool = False, bust: float = 0.0
     return Image.fromarray(a.clip(0, 255).astype(np.uint8)).convert("RGB")
 
 
-SKIRT_WORDS = ((("maxi", "floor", "ankle", "long skirt", "long dress"), 1.85), (("midi", "calf", "below the knee"), 1.4),
-               (("mini", "short skirt", "mid-thigh", "above the knee"), 0.7))
+SKIRT_WORDS = ((("maxi", "floor", "ankle-length", "long"), 1.85), (("midi", "calf", "below the knee"), 1.4),
+               (("mini", "short", "mid-thigh", "above the knee"), 0.75))
 
 
 def ma_skirt_of(look: str) -> float:
-    """Where the skirt or dress in a person's words ends (ma_depth's skirt): 0 with none, the knee unless they say."""
-    w = look.lower()
-    if not any(k in w for k in ("skirt", "dress", "gown", "kilt")):
-        return 0.0
-    return next((v for keys, v in SKIRT_WORDS if any(k in w for k in keys)), 1.05)
+    """Where the skirt or dress in a person's words ends (ma_depth's skirt): 0 with none, the knee unless the words
+    of that garment say. Read in the garment's own phrase: "tan ankle boots" after a midi skirt made it a maxi, and a
+    dress shirt or dress shoes are no dress."""
+    import re
+    for part in look.lower().split(","):
+        if re.search(r"\b(skirt|dress|gown|kilt)\b(?!\s*(shirt|shoes|trousers|pants|boots))", part):
+            return next((v for keys, v in SKIRT_WORDS if any(re.search(rf"\b{k}\b", part) for k in keys)), 1.05)
+    return 0.0
+
+
+def ma_skirt_at(hem: float) -> float:
+    """A hem measured on a standing picture (share of the height from the top of the head) as ma_depth's skirt."""
+    from .gait import HIP, SHIN, THIGH
+    hip, knee = 1 - HIP, 1 - HIP + THIGH
+    return float(np.clip((hem - hip) / THIGH if hem <= knee else 1 + (hem - knee) / SHIN, 0.4, 2.0))
 
 
 def ma_skirt_hem(pts: dict, skirt: float) -> tuple[float, float, float]:

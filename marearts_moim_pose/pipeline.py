@@ -31,7 +31,7 @@ from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, HAND_
 from .gait import LSHO, RSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
 from .judge import HEAD_FLOOR, HEAD_MIN, HEAD_SLACK, ma_hand_box, ma_hand_boxes
 from .lock import ma_leg_tones, ma_lock
-from .mannequin import ma_depth, ma_skirt_hem, ma_skirt_of
+from .mannequin import ma_depth, ma_skirt_at, ma_skirt_hem, ma_skirt_of
 from .sheet import ma_loop_gif, ma_meta, ma_review_sheet, ma_sheet, ma_sprites, ma_strip_gif
 
 NEIGHBOUR_TRIES = 3     # an older man's arm half way back: 12 seeds failed from his picture, 1 in 3 from frame 1
@@ -119,6 +119,15 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
             mask = np.asarray(Image.open(m).convert("L").resize(ref.size)) > 128
         ref = ma_face_right(ref, mask, req.facing, judge, log)
     ref.save(raw / "reference.png")
+    # whether there is a skirt the words say; where it ends the person's own picture, when a judge can find it there
+    # (the words called a skirt to the ankle midi, 11-05)
+    if req.skirt is None and not (raw / "skirt.json").exists():
+        skirt = ma_skirt_of(req.look)
+        hem = judge.skirt_hem(ref) if skirt and judge is not None and hasattr(judge, "skirt_hem") else None
+        if hem is not None:
+            skirt = ma_skirt_at(hem)
+            log(f"skirt: ends {hem:.2f} of the height down the picture, {skirt:.2f} along the leg")
+        (raw / "skirt.json").write_text(json.dumps({"skirt": round(skirt, 3)}) + "\n", encoding="utf-8")
     ref_im = ref                                        # the person, for the head likeness
     ref_name = comfy.upload(ref, f"{req.name}_ref.png")
     carry = req.kind == "carry"
@@ -407,8 +416,14 @@ def ma_seeds(seed: int) -> list[int]:
 
 
 def ma_skirt(req: MaRequest) -> float:
-    """Where the person's skirt ends along the leg (0: none): as asked, or from the words of the look."""
-    return ma_skirt_of(req.look) if req.skirt is None else req.skirt
+    """Where the person's skirt ends along the leg (0: none): as asked, as measured on the picture when the cycle was
+    first drawn (raw/skirt.json), or from the words of the look."""
+    saved = Path(req.out) / "raw" / "skirt.json"
+    if req.skirt is not None:
+        return req.skirt
+    if saved.exists():
+        return float(json.loads(saved.read_text(encoding="utf-8"))["skirt"])
+    return ma_skirt_of(req.look)
 
 
 def ma_finish(req: MaRequest, phases=None, pts=None, depths=None) -> dict:
