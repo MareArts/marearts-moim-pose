@@ -229,8 +229,11 @@ def _ma_video14_graph(depth_images, first_image, prompt, seed, width, height, pr
 
 
 # Redrawn whole, a video frame went back to drifting (clothes change 10.8 at 45 %); at 30 % it kept the video's
-# 6.9 and came out as sharp as a drawn frame (11-03).
-SHARPEN = 0.3
+# 6.9 and came out as sharp as a drawn frame (11-03). From frame 0's look and over the person's own mannequin, more
+# is better on both counts: on six frames each of two women, detail (the lines inside the figure) 14.4 -> 16.5 and
+# 11.6 -> 14.3, the clothes from frame to frame 21.1 -> 14.9 and 42.3 -> 40.7, from 30 % to 60 %; at 30 % the
+# video's low size showed as soft lines, cuffs and pleats next to the app's drawings (11-05).
+SHARPEN = 0.6
 
 
 def ma_sharpen_graph(depth_image: str, ref_image: str, start_image: str, prompt: str, seed: int = 7,
