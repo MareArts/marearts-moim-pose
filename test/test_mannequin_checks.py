@@ -318,3 +318,22 @@ def test_leg_tones_leave_the_skirt_as_drawn():
     f[:hem][a[:hem]] = (40, 50, 110, 255)                           # a navy skirt to the hem
     toned = ma_leg_tones([f], [ma_depth(pts)], 0.9, [pts], [hem])[0]
     assert (toned[:hem] == f[:hem]).all()                          # nothing shaded or lit through the skirt
+
+
+def test_skirt_flare_measured_on_the_picture():
+    from marearts_moim_pose.gait import FIG, HIP, LHIP, LKNE
+    from marearts_moim_pose.mannequin import SKIRT, ma_skirt_flare
+    h, hem = 1000, 0.72
+
+    def standing(width):                         # a figure 1000 px tall, its skirt `width` of the height wide
+        m = np.zeros((1100, 600), bool)
+        m[50:1050, 250:350] = True
+        m[50 + int(h * (1 - HIP)):50 + int(h * hem), 300 - int(width * h / 2):300 + int(width * h / 2)] = True
+        return m
+    pencil, aline = ma_skirt_flare(standing(0.11), hem), ma_skirt_flare(standing(0.18), hem)
+    assert pencil < 0.06 and aline > 0.09
+    pts = ma_walk_points(0.0)
+    y = int(pts[LHIP][1] + 0.9 * (pts[LKNE][1] - pts[LHIP][1]))
+    wide = [int((np.abs(np.asarray(ma_depth(pts, skirt=1.0, flare=f).convert("L")).astype(int)[y] - SKIRT) < 12).sum())
+            for f in (pencil, aline)]
+    assert wide[1] > wide[0] + 0.05 * FIG                  # an A-line skirt stands wider than a pencil one
