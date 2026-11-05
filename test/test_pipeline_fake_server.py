@@ -537,3 +537,17 @@ def test_head_box_holds_the_mannequins_head_and_hair():
     ys, xs = np.nonzero(head)
     assert x0 <= xs.min() and xs.max() <= x1 and y0 <= ys.min() and ys.max() <= y1          # all of the head
     assert y1 < pts[NECK_I][1] + 0.05 * FIG and x0 < pts[NOSE][0] < x1                       # and not the body
+
+
+def test_far_hand_asked_for_only_where_the_mannequin_shows_it():
+    from marearts_moim_pose.comfy import ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, ma_arm_words
+    from marearts_moim_pose.gait import LSHO, RSHO, ma_frame_phases, ma_walk_points
+    from marearts_moim_pose.judge import ma_hand_box
+    from marearts_moim_pose.mannequin import ma_depth
+    from marearts_moim_pose.pipeline import ma_hidden
+    pts = [ma_walk_points(t) for t in ma_frame_phases(12)]
+    widest = max(abs(p[LSHO + 1][0] - p[LSHO][0]) for p in pts)
+    swung = [i for i, p in enumerate(pts) if ma_arm_words(p, widest) in (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF)]
+    hid = {i: ma_hidden(ma_depth(pts[i], skirt=1.05), ma_hand_box(pts[i], RSHO + 2)) for i in swung}
+    assert [i for i in swung if hid[i] < 0.5] == [0, 1, 11]      # well out in front: asked for
+    assert all(hid[i] > 0.5 for i in (2, 10))                      # at the half swing, behind her skirt: not

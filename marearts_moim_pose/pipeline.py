@@ -138,11 +138,14 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     prompts = [ma_prompt(req.look, req.kind, change=req.change, arms="" if carry else ma_arm_words(p, widest))
                for p in pts]
     # where a hand must be drawn: the near one always, the far one when it swings out in front of the body
+    # and only where the mannequin shows it: half behind the body or a skirt the video rightly drew none, and every
+    # seed failed it (a girl's far hand at the half swing, 66-79 % behind her skirt, two frames of twelve, 11-05)
     hands = [{} for _ in pts]
-    for h, p in zip([] if carry else hands, pts):
+    for h, p, d in zip([] if carry else hands, pts, depths):
         h["near"] = ma_hand_box(p, LSHO + 2)
-        if ma_arm_words(p, widest) in (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF):
-            h["far"] = ma_hand_box(p, RSHO + 2)
+        far = ma_hand_box(p, RSHO + 2)
+        if ma_arm_words(p, widest) in (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF) and ma_hidden(d, far) < 0.5:
+            h["far"] = far
     tries = len(SEEDS) if judge is not None else 3
     path = out / f"{req.kind}_report.json"
     report = {r["frame"]: r for r in (json.loads(path.read_text(encoding="utf-8")) if path.exists() else [])}
@@ -325,6 +328,14 @@ def ma_extra_hands(boxes: list, pts: dict) -> dict:
         cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
         left.remove(min(left, key=lambda b: ((b[0] + b[2]) / 2 - cx) ** 2 + ((b[1] + b[3]) / 2 - cy) ** 2))
     return {f"extra{k}": (b[0], b[1] - (b[3] - b[1]), b[2], b[3]) for k, b in enumerate(left)}
+
+
+def ma_hidden(depth: Image.Image, box: tuple[int, int, int, int]) -> float:
+    """How much of a box on the mannequin is covered by something nearer than the far limbs (body, skirt, box, the
+    near arm and leg), 0 to 1."""
+    x0, y0, x1, y1 = box
+    d = np.asarray(depth.convert("L"))[max(0, y0):max(0, y1), max(0, x0):max(0, x1)]
+    return float((d > 130).mean()) if d.size else 0.0
 
 
 def ma_head_box(pts: dict, head: float = 0.19) -> tuple[int, int, int, int]:
