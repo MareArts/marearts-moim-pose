@@ -350,9 +350,9 @@ def test_mannequin_fitted_to_the_picture():
     m[310:370, 370:420] = True                             # a chest standing out 0.05 at the front
     f = ma_fit(m)
     assert abs(f["head"] - 0.16) < 0.01 and abs(f["body"] - 0.12) < 0.01 and abs(f["bust"] - 0.11) < 0.015
-    rows = f["torso"]["rows"]
-    assert max(r[1] for r in rows) <= 0.78 * 0.12 + 1e-3              # the hair behind is not body
-    assert max(r[0] for r in rows) > 0.10                              # the chest is
+    rows = f["torso"]["rows"]                                          # x from the face's front (389), of 1000
+    assert min(r[1] for r in rows) >= (310 - 0.78 * 120 - 389) / 1000 - 1e-3   # the hair behind is not body
+    assert max(r[0] for r in rows) - min(r[0] for r in rows[6:]) > 0.04        # the chest is
     flat = m.copy()
     flat[310:370, 370:420] = False
     assert ma_fit(flat)["bust"] == 0                       # nothing stands out: no chest drawn
@@ -412,3 +412,17 @@ def test_skirt_hem_as_wide_as_measured_unless_the_stride_needs_more():
     b, f, _ = ma_skirt_hem(apart, 1.0, 0.18)
     b2, f2, _ = ma_skirt_hem(apart, 1.0, 0.36)
     assert f - b < f2 - b2 and f - b >= 0.18 * FIG - 1     # a stride never narrows it, a wider skirt stays wider
+
+
+def test_skirt_follows_the_hips_of_the_body():
+    from marearts_moim_pose.gait import FIG, LHIP
+    from marearts_moim_pose.mannequin import ma_skirt_outline
+    pts = ma_walk_points(0.25)
+    rows = [[0.05, 0.05]] * 6 + [[0.05, 0.05], [0.06, 0.08], [0.06, 0.09], [0.06, 0.1], [0.06, 0.1], [0.05, 0.09]]
+    torso = {"neck": 0.18, "rows": rows}                 # a slim waist, the seat standing out behind at the hips
+    plain = ma_skirt_outline(pts, 1.0, 0.12)
+    curved = ma_skirt_outline(pts, 1.0, 0.12, torso)
+    hem_y = plain[2][1]
+    seat = min(x for x, y in curved if y < hem_y - 1)
+    assert seat < plain[0][0] - 0.01 * FIG                 # the seat's curve in the skirt, past the plain wedge
+    assert len(curved) > len(plain) and pts[LHIP][1] > 0

@@ -131,7 +131,7 @@ def ma_depth(pts: dict, head: float = 0.19, box: bool = False, bust: float = 0.0
     else:
         leg(LHIP, NEAR)
     if skirt:
-        d.polygon(ma_skirt_outline(pts, skirt, flare), fill=SKIRT)
+        d.polygon(ma_skirt_outline(pts, skirt, flare, torso), fill=SKIRT)
     arm(LSHO, NEAR)
     a = ndimage.gaussian_filter(np.asarray(im, np.float32), 3)
     return Image.fromarray(a.clip(0, 255).astype(np.uint8)).convert("RGB")
@@ -160,6 +160,7 @@ def ma_skirt_at(hem: float) -> float:
 
 
 TORSO_ROWS = 12                                        # the torso's outline: rows from the neck to the hips
+FACE_FRONT = 0.033                                     # the mannequin's face front (its nose tip) past NOSE
 TORSO_SEAT = 0.06                                      # and on past the hips over the seat (share of the height)
 BACK_MAX, BACK_HIP = 0.62, 0.78                        # how far a back stands behind the waist's middle (of its
                                                        # thickness): above the waist, and the hips and seat below
@@ -195,12 +196,15 @@ def ma_fit(person: np.ndarray) -> dict:
     fw, thin = min(waist, key=lambda x: x[1][1] - x[1][0])
     t = thin[1] - thin[0]
     body, axis = t / h, (thin[0] + thin[1]) / 2
+    # from the face's front: the mannequin laid the outline on its neck and the chest came out behind where the
+    # picture has it, a full chest drawn flat (11-05)
+    face = max((r[1] for r in (row(f) for f in np.linspace(0.05, 0.12, 8)) if r), default=axis)
     rows = []
     for f in np.linspace(neck, 1 - HIP + TORSO_SEAT, TORSO_ROWS):
         r = row(f) or thin
         most = (BACK_MAX if f < fw else BACK_HIP) * t
-        rows.append([round((r[1] - axis) / h, 4), round(min(axis - r[0], most) / h, 4)])
-    torso = {"neck": round(float(neck), 4), "rows": rows}
+        rows.append([round((r[1] - face) / h, 4), round((max(r[0], axis - most) - face) / h, 4)])
+    torso = {"neck": round(float(neck), 4), "rows": rows, "from": "face"}
     out = (np.median([r[1] for f in np.linspace(0.26, 0.32, 7) if (r := row(f))]) - thin[1]) / h
     bust = body / 2 + out if out > 0.01 else 0.0
     return {"head": round(float(np.clip(head, 0.12, 0.26)), 3), "body": round(float(np.clip(body, 0.09, 0.22)), 3),
@@ -266,18 +270,28 @@ def ma_skirt_hem(pts: dict, skirt: float, flare: float | None = None) -> tuple[f
     return mid - half, mid + half, max(y0, y1)
 
 
-def ma_skirt_outline(pts: dict, skirt: float, flare: float | None = None) -> list[tuple[float, float]]:
-    """The skirt from the waist (the body's width) to its hem, as a polygon."""
+def ma_skirt_outline(pts: dict, skirt: float, flare: float | None = None,
+                     torso: dict | None = None) -> list[tuple[float, float]]:
+    """The skirt from the waist to its hem, as a polygon: over the hips and seat along the body's own outline when
+    there is one (ma_fit), then on to the hem. A straight wedge from the waist hid the hips' curve under the cloth
+    and drew a slim woman boxy (11-05)."""
     hip = ((pts[LHIP][0] + pts[RHIP][0]) / 2, pts[LHIP][1])
     back, front, y = ma_skirt_hem(pts, skirt, flare)
-    w = 0.08 * FIG
     top = hip[1] - 0.06 * FIG
-    return [(hip[0] - w, top), (hip[0] + w, top), (front, y), (back, y)]
+    if not torso:
+        w = 0.08 * FIG
+        return [(hip[0] - w, top), (hip[0] + w, top), (front, y), (back, y)]
+    neck = np.array(pts[NECK_I], float)
+    u0 = (top - neck[1]) / max(1e-6, hip[1] - neck[1])
+    fr, bk = ma_torso_sides(pts, torso, start=u0)
+    fr = [p for p in fr if p[1] < y] or [(hip[0] + 0.05 * FIG, top)]
+    bk = [p for p in bk if p[1] < y] or [(hip[0] - 0.05 * FIG, top)]
+    return fr + [(max(front, fr[-1][0]), y), (min(back, bk[-1][0]), y)] + bk[::-1]
 
 
-def ma_torso_outline(pts: dict, torso: dict, start: float = 0.0) -> list[tuple[float, float]]:
-    """The torso outline (ma_fit) laid along the mannequin's body, neck to hips and past them, leaning as it leans:
-    a polygon, from `start` of the way from the neck to the hips."""
+def ma_torso_sides(pts: dict, torso: dict, start: float = 0.0) -> tuple[list, list]:
+    """The torso outline's front and back (ma_fit) laid along the mannequin's body, each from the top down, from
+    `start` of the way from the neck to the hips, leaning as it leans."""
     from .gait import HIP
     neck = np.array(pts[NECK_I], float)
     hip = np.array(((pts[LHIP][0] + pts[RHIP][0]) / 2, pts[LHIP][1]), float)
@@ -287,9 +301,20 @@ def ma_torso_outline(pts: dict, torso: dict, start: float = 0.0) -> list[tuple[f
     end = 1 + TORSO_SEAT / max(1e-3, (1 - HIP) - torso["neck"])
     us = np.linspace(0, end, len(rows))
     keep = [k for k, u in enumerate(us) if u >= start]
-    front = [tuple(neck + a * us[k] + n * rows[k][0] * FIG) for k in keep]
-    back = [tuple(neck + a * us[k] - n * rows[k][1] * FIG) for k in reversed(keep)]
-    return front + back
+    if torso.get("from") == "face":            # x from the face's front, carried along as the body leans
+        face = np.array([pts[NOSE][0] + FACE_FRONT * FIG, 0.0])
+        base = [neck + a * us[k] + face - np.array([neck[0], 0.0]) for k in keep]
+        return ([tuple(b + n * rows[k][0] * FIG) for b, k in zip(base, keep)],
+                [tuple(b + n * rows[k][1] * FIG) for b, k in zip(base, keep)])
+    return ([tuple(neck + a * us[k] + n * rows[k][0] * FIG) for k in keep],
+            [tuple(neck + a * us[k] - n * rows[k][1] * FIG) for k in keep])
+
+
+def ma_torso_outline(pts: dict, torso: dict, start: float = 0.0) -> list[tuple[float, float]]:
+    """The torso outline (ma_fit) laid along the mannequin's body, neck to hips and past them, leaning as it leans:
+    a polygon, from `start` of the way from the neck to the hips."""
+    front, back = ma_torso_sides(pts, torso, start)
+    return front + back[::-1]
 
 
 def ma_box_rect(pts: dict) -> tuple[float, float, float, float]:
