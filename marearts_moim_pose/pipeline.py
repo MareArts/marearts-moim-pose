@@ -31,7 +31,7 @@ from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, HAND_
 from .gait import LSHO, RSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
 from .judge import HEAD_FLOOR, HEAD_MIN, HEAD_SLACK, ma_hand_box, ma_hand_boxes
 from .lock import ma_leg_tones, ma_lock
-from .mannequin import ma_depth, ma_fit, ma_skirt_at, ma_skirt_flare, ma_skirt_hem, ma_skirt_hem_of, ma_skirt_of
+from .mannequin import ma_arms_on_body, ma_depth, ma_fit, ma_skirt_at, ma_skirt_flare, ma_skirt_hem, ma_skirt_hem_of, ma_skirt_of
 from .sheet import ma_loop_gif, ma_meta, ma_review_sheet, ma_sheet, ma_sprites, ma_strip_gif
 
 NEIGHBOUR_TRIES = 3     # an older man's arm half way back: 12 seeds failed from his picture, 1 in 3 from frame 1
@@ -130,7 +130,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     ref_name = comfy.upload(ref, f"{req.name}_ref.png")
     carry = req.kind == "carry"
     phases = ma_frame_phases(req.frames, req.gait)
-    pts = [ma_walk_points(t, req.gait, carry=carry) for t in phases]
+    pts = [ma_arms_on_body(ma_walk_points(t, req.gait, carry=carry), shape["torso"]) for t in phases]
     depths = [ma_depth(p, box=carry, **shape) for p in pts]
     widest = max(abs(p[LSHO + 1][0] - p[LSHO][0]) for p in pts)
     prompts = [ma_prompt(req.look, req.kind, change=req.change, arms="" if carry else ma_arm_words(p, widest))
@@ -467,8 +467,8 @@ def ma_finish(req: MaRequest, phases=None, pts=None, depths=None) -> dict:
     out, raw = Path(req.out), Path(req.out) / "raw"
     carry = req.kind == "carry"
     phases = phases or ma_frame_phases(req.frames, req.gait)
-    pts = pts or [ma_walk_points(t, req.gait, carry=carry) for t in phases]
     shape = ma_shape(req)
+    pts = pts or [ma_arms_on_body(ma_walk_points(t, req.gait, carry=carry), shape["torso"]) for t in phases]
     depths = depths or [ma_depth(p, box=carry, **shape) for p in pts]
     cut = [ma_cutout(Image.open(raw / f"{req.kind}_{i}.png"), Image.open(raw / f"{req.kind}_{i}_mask.png"))
            for i in range(req.frames)]

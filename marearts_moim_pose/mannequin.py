@@ -289,6 +289,23 @@ def ma_skirt_outline(pts: dict, skirt: float, flare: float | None = None,
     return fr + [(max(front, fr[-1][0]), y), (min(back, bk[-1][0]), y)] + bk[::-1]
 
 
+def ma_arms_on_body(pts: dict, torso: dict | None) -> dict:
+    """The pose with both arms (shoulder, elbow, wrist) moved with the body's outline (ma_fit), so they hang from the
+    middle of the body at the shoulders: laid from the face, a woman's body stood forward of the skeleton's shoulders,
+    the arms ran down its back edge, and three frames of twelve failed for arms drawn where arms go (11-05)."""
+    if not torso or torso.get("from") != "face":
+        return pts
+    front, back = ma_torso_sides(pts, torso)
+    ys = np.array([p[1] for p in front])
+    mid = (np.array([p[0] for p in front]) + np.array([p[0] for p in back])) / 2
+    out = dict(pts)
+    for sho in (LSHO, RSHO):
+        dx = float(np.interp(pts[sho][1], ys, mid)) - pts[sho][0]
+        for k in (sho, sho + 1, sho + 2):
+            out[k] = (pts[k][0] + dx, pts[k][1])
+    return out
+
+
 def ma_torso_sides(pts: dict, torso: dict, start: float = 0.0) -> tuple[list, list]:
     """The torso outline's front and back (ma_fit) laid along the mannequin's body, each from the top down, from
     `start` of the way from the neck to the hips, leaning as it leans."""

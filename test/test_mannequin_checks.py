@@ -426,3 +426,17 @@ def test_skirt_follows_the_hips_of_the_body():
     seat = min(x for x, y in curved if y < hem_y - 1)
     assert seat < plain[0][0] - 0.01 * FIG                 # the seat's curve in the skirt, past the plain wedge
     assert len(curved) > len(plain) and pts[LHIP][1] > 0
+
+
+def test_arms_hang_from_the_middle_of_the_body():
+    from marearts_moim_pose.gait import LSHO, RSHO
+    from marearts_moim_pose.mannequin import ma_arms_on_body, ma_torso_sides
+    pts = ma_walk_points(0.0)
+    rows = [[-0.02, -0.14]] * 12                            # a body standing well forward of the skeleton
+    torso = {"neck": 0.18, "rows": rows, "from": "face"}
+    moved = ma_arms_on_body(pts, torso)
+    front, back = ma_torso_sides(pts, torso)
+    mid = (front[1][0] + back[1][0]) / 2
+    assert abs(moved[LSHO][0] - mid) < 25 and abs(moved[RSHO][0] - mid) < 25
+    assert moved[LSHO + 2][0] - pts[LSHO + 2][0] == moved[LSHO][0] - pts[LSHO][0]     # the whole arm moves
+    assert ma_arms_on_body(pts, None) is pts
