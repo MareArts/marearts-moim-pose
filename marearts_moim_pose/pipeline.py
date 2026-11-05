@@ -31,7 +31,7 @@ from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, HAND_
 from .gait import LSHO, RSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
 from .judge import HEAD_FLOOR, HEAD_MIN, HEAD_SLACK, ma_hand_box, ma_hand_boxes
 from .lock import ma_leg_tones, ma_lock
-from .mannequin import ma_depth, ma_fit, ma_skirt_at, ma_skirt_flare, ma_skirt_hem, ma_skirt_of
+from .mannequin import ma_depth, ma_fit, ma_skirt_at, ma_skirt_flare, ma_skirt_hem, ma_skirt_hem_of, ma_skirt_of
 from .sheet import ma_loop_gif, ma_meta, ma_review_sheet, ma_sheet, ma_sprites, ma_strip_gif
 
 NEIGHBOUR_TRIES = 3     # an older man's arm half way back: 12 seeds failed from his picture, 1 in 3 from frame 1
@@ -425,15 +425,21 @@ def ma_seeds(seed: int) -> list[int]:
 
 
 def ma_measure_shape(req: MaRequest, ref: Image.Image, judge=None) -> dict:
-    """The mannequin's shape from the person's own picture (ma_fit: head, body, bust), what the request does not set.
-    Whether there is a skirt the words say; where it ends and how wide it stands the picture, when a judge can find
-    it there (the words called a skirt to the ankle midi; one width made a pencil skirt A-line, 11-05)."""
+    """The mannequin's shape from the person's own picture (ma_fit: head, body, bust, torso), what the request does
+    not set. A skirt where the words name one and a judge, when there is one, finds it (the words said a skirt where
+    the picture has jeans; a judge alone took wide trousers for a skirt); where it ends and how wide it stands
+    measured on the picture's pixels (ma_skirt_hem_of, ma_skirt_flare). Heels where the judge sees them on the feet,
+    or the words say so (11-05)."""
+    from scipy import ndimage
     from .checks import ma_person
-    person = ma_person((np.asarray(ref.convert("RGB")) < 235).any(-1))
+    rgb = np.asarray(ref.convert("RGB"))
+    person = ndimage.binary_fill_holes(ma_person((rgb < 235).any(-1)))    # a white skirt or shirt is the person
     shape = ma_fit(person)
     skirt, flare = ma_skirt_of(req.look), None
-    hem = judge.skirt_hem(ref) if skirt and judge is not None and hasattr(judge, "skirt_hem") else None
-    if hem is not None:
+    if skirt and judge is not None and hasattr(judge, "skirt_hem") and judge.skirt_hem(ref) is None:
+        skirt = 0.0
+    if skirt and person.any():
+        hem = ma_skirt_hem_of(person, rgb)
         skirt, flare = ma_skirt_at(hem), round(ma_skirt_flare(person, hem), 3)
     heels = judge.heels(ref) if judge is not None and hasattr(judge, "heels") else None
     if heels is None:                                      # no judge to look: the words

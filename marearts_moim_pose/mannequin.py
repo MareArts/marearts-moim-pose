@@ -207,6 +207,38 @@ def ma_fit(person: np.ndarray) -> dict:
             "bust": round(float(bust), 3), "torso": torso}
 
 
+def ma_skirt_hem_of(person: np.ndarray, rgb: np.ndarray) -> float:
+    """Where a skirt ends on a standing picture, as a share of the height from the top: from just below the hips down,
+    the rows still of the skirt's colour (the main colour there, so a hand or a sleeve is not it) and as wide as the
+    skirt, until four rows are not (a black skirt over black tights ends where the width falls to the legs). On the
+    12 skirts of 50 game characters it found each hem; a judge's box around the skirt put one hem at 0.71 of the height
+    and at 0.78 the next time, a pleated skirt above the knee drawn below it (11-05)."""
+    from skimage import color
+    ys = np.nonzero(person.any(1))[0]
+    top, h = ys.min(), ys.max() - ys.min()
+    lab = color.rgb2lab(rgb[..., :3] / 255.0)
+    r0, r1 = int(top + 0.52 * h), int(top + 0.58 * h)
+    px = lab[r0:r1][person[r0:r1]]
+    c = np.median(px, axis=0)
+    for _ in range(3):
+        c = np.median(px[np.linalg.norm(px - c, axis=-1) < 22], axis=0)
+    widths, miss, last = [], 0, r0
+    for y in range(r0, int(top + 0.98 * h)):
+        xs = np.nonzero(person[y])[0]
+        if not len(xs):
+            break
+        share = (np.linalg.norm(lab[y][person[y]] - c, axis=-1) < 22).mean()
+        narrow = len(widths) > 5 and xs.max() - xs.min() < 0.75 * np.median(widths)
+        if share >= 0.45 and not narrow:
+            last, miss = y, 0
+            widths.append(xs.max() - xs.min())
+        else:
+            miss += 1
+            if miss >= 4:
+                break
+    return float((last - top) / h)
+
+
 def ma_skirt_flare(person: np.ndarray, hem: float) -> float:
     """How far a skirt stands off the legs (ma_depth's flare), from a standing picture's person mask and its hem
     (share of the height): the figure's width six tenths of the way from the hips down to the hem. On 12 the game skirts

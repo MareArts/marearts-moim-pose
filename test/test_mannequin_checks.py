@@ -389,3 +389,15 @@ def test_heels_in_the_mannequin_and_from_the_judge():
     im = Image.new("RGB", (200, 600), "white")
     im.paste(Image.new("RGB", (60, 500), (200, 30, 30)), (70, 50))
     assert Judge().heels(im) is True
+
+
+def test_skirt_hem_measured_on_the_pixels():
+    from marearts_moim_pose.mannequin import ma_skirt_hem_of
+    rgb = np.full((1100, 600, 3), 255, np.uint8)
+    rgb[50:1050, 260:340] = (240, 200, 180)                 # a figure 1000 px tall, bare legs
+    rgb[500:600, 285:300] = (240, 200, 180)
+    rgb[480:700, 230:370] = (40, 40, 40)                    # a black skirt to 0.65
+    rgb[520:560, 330:345] = (240, 200, 180)                 # a hand over it
+    rgb[700:1050, 270:330] = (40, 40, 40)                   # black tights below, narrower than the skirt
+    person = (rgb < 235).any(-1)
+    assert abs(ma_skirt_hem_of(person, rgb) - 0.65) < 0.01
