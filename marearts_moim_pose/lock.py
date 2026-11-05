@@ -216,7 +216,10 @@ def ma_colour_match(frames: list[np.ndarray], ref: np.ndarray, k: float = 0.5,
     r = color.rgb2lab(ref.reshape(-1, 1, 3)[..., :3] / 255.0).reshape(-1, 3)
     rng = np.random.default_rng(0)
     sample = r[rng.choice(len(r), min(len(r), 20000), replace=False)]
+    groups = min(groups, len(np.unique(np.round(sample), axis=0)))          # a picture of few colours: fewer
     centres, _ = kmeans2(sample, groups, minit="++", seed=0)
+    centres = centres[~np.isnan(centres).any(1)]
+    groups = len(centres)
     out = []
     for i, f in enumerate(frames):
         m = f[..., 3] > 128
