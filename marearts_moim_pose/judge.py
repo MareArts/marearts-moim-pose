@@ -50,6 +50,11 @@ HEAD = (0.0, 0.0, 1.0, 0.3)
 # frames this one failed exactly those two.
 ASK_HAND_HERE = ("Look at the middle of this picture. Is a human hand (fingers, a fist or the back of a hand) there? "
                  "Answer yes or no.")
+# Heeled shoes or flat, on the feet of the person's picture: on 50 game characters it named the three in pumps or heels
+# and no one else (11-05). The mannequin's feet were flat for all, and the video drew pumps as low shoes.
+ASK_HEELS = ("Look at the shoes in this cartoon drawing. Do they have high heels (the heel raised well above the toes, "
+             "like pumps, stilettos or heeled boots), or are they flat (sneakers, flats, loafers, boots with a low heel)? "
+             "Answer with one word: heels or flat.")
 HAND_BOX, HAND_PAST = 0.05, 0.015        # half the crop's side, its centre past the wrist; shares of the figure
 # Where a skirt ends, on the person's own picture: on the 13 skirts of 50 game characters its box's bottom matched the
 # hem drawn (a short skirt above the knee, one to the ankle that the words called midi, 11-05). Whether there is a
@@ -158,6 +163,17 @@ class MaJudge:
             return None
         hem = max(b[3] for b in boxes) / 1000 * fig.size[1] + max(0, top - 10)
         return float((hem - top) / max(1, bot - top))
+
+    def heels(self, im: Image.Image) -> bool | None:
+        """Whether the person in a standing picture (on a light background) wears heeled shoes; None: no answer."""
+        a = (np.asarray(im.convert("RGB")) < 235).any(-1)
+        ys, xs = np.nonzero(a)
+        if not len(ys):
+            return None
+        top, bot = ys.min(), ys.max()
+        feet = im.convert("RGB").crop((max(0, xs.min() - 10), int(bot - 0.2 * (bot - top)), xs.max() + 10, bot + 10))
+        ans = self.ask(feet, ASK_HEELS).strip().lower()
+        return True if ans.startswith("heel") else False if ans.startswith("flat") else None
 
     def facing(self, im: Image.Image) -> str:
         """'left', 'right' or '' (no clear answer): which way the person in a standing picture faces."""

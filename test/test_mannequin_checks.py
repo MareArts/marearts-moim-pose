@@ -370,3 +370,22 @@ def test_mannequin_fitted_to_the_picture():
     xs = np.nonzero(np.abs(d[chest_y] - BODY) < 15)[0]
     assert xs.max() - pts[NECK_I][0] > 0.08 * FIG          # the chest stands out in the mannequin too
     assert max(p[1] for p in out) > pts[LHIP][1]           # and the seat goes on past the hips
+
+
+def test_heels_in_the_mannequin_and_from_the_judge():
+    from marearts_moim_pose.gait import LANK
+    from marearts_moim_pose.judge import MaJudge
+    pts = ma_walk_points(0.0)
+    flat = np.asarray(ma_depth(pts).convert("L")) > 30
+    heel = np.asarray(ma_depth(pts, heels=True).convert("L")) > 30
+    ax, ay = (int(v) for v in pts[LANK])
+    below = slice(ay + 25, ay + 40)
+    arch = slice(ax + 8, ax + 30)                            # under the foot, between the heel and the ball
+    assert flat[below, arch].mean() > 0.5 and heel[below, arch].mean() < flat[below, arch].mean() - 0.2
+
+    class Judge(MaJudge):
+        def ask(self, im, text):
+            return "Heels"
+    im = Image.new("RGB", (200, 600), "white")
+    im.paste(Image.new("RGB", (60, 500), (200, 30, 30)), (70, 50))
+    assert Judge().heels(im) is True

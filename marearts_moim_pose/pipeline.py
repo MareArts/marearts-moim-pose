@@ -435,16 +435,19 @@ def ma_measure_shape(req: MaRequest, ref: Image.Image, judge=None) -> dict:
     hem = judge.skirt_hem(ref) if skirt and judge is not None and hasattr(judge, "skirt_hem") else None
     if hem is not None:
         skirt, flare = ma_skirt_at(hem), round(ma_skirt_flare(person, hem), 3)
-    shape.update(skirt=round(skirt, 3), flare=flare)
+    heels = judge.heels(ref) if judge is not None and hasattr(judge, "heels") else None
+    if heels is None:                                      # no judge to look: the words
+        heels = bool(re.search(r"\b(heels?|heeled|pumps|stilettos?)\b", req.look.lower()))
+    shape.update(skirt=round(skirt, 3), flare=flare, heels=bool(heels))
     return shape
 
 
 def ma_shape(req: MaRequest) -> dict:
-    """The mannequin's shape for ma_depth (head, body, bust, torso, skirt, flare): as the request sets it (a body or a
+    """The mannequin's shape for ma_depth (head, body, bust, torso, skirt, flare, heels): as the request sets it (a body or a
     bust asked for drops the measured outline), else as measured
     on the picture when the cycle was first drawn (raw/shape.json), else the defaults (a skirt from the words)."""
     saved = Path(req.out) / "raw" / "shape.json"
-    shape = dict(head=0.19, body=0.16, bust=0.0, torso=None, skirt=ma_skirt_of(req.look), flare=None)
+    shape = dict(head=0.19, body=0.16, bust=0.0, torso=None, skirt=ma_skirt_of(req.look), flare=None, heels=False)
     if saved.exists():
         shape.update(json.loads(saved.read_text(encoding="utf-8")))
     shape.update({k: v for k in ("head", "body", "bust", "skirt") if (v := getattr(req, k)) is not None})

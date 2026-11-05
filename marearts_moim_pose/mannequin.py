@@ -48,7 +48,7 @@ def ma_skeleton(pts: dict) -> Image.Image:
 
 def ma_depth(pts: dict, head: float = 0.19, box: bool = False, bust: float = 0.0,
              seat: float = 0.06, skirt: float = 0.0, flare: float | None = None, body: float = 0.16,
-             torso: dict | None = None) -> Image.Image:
+             torso: dict | None = None, heels: bool = False) -> Image.Image:
     """The depth mannequin of a pose (RGB, near bright, far dark).
 
     head: head width as a share of the height. Use the person's own (a big anime head with hair is about 0.19), or
@@ -67,6 +67,7 @@ def ma_depth(pts: dict, head: float = 0.19, box: bool = False, bust: float = 0.0
     body: how thick the body is from front to back (share of the height; ma_fit measures it with head and bust).
     torso: the body's own outline from the neck past the hips (ma_fit, from the person's picture): drawn in place of
     the tube and the chest, so a slim waist, a chest and the hips come through to the drawing.
+    heels: heeled shoes: the foot slopes down to its toes with a heel under it and the arch open between them.
     """
     from scipy import ndimage
     im = Image.new("L", (W, H))
@@ -82,8 +83,15 @@ def ma_depth(pts: dict, head: float = 0.19, box: bool = False, bust: float = 0.0
     def leg(hip_i, v):
         hp, kn, an = pts[hip_i], pts[hip_i + 1], pts[hip_i + 2]
         cap(hp, kn, 0.1, v)
-        cap(kn, an, 0.072, v)
-        cap(an, (an[0] + 0.075 * s, an[1] + 0.02 * s), 0.035, v)          # the foot, pointing right
+        if heels:              # the shin ends small at the ankle, the foot slopes to its toes, a heel under it
+            d.line([kn, an], fill=v, width=round(0.072 * s))
+            for p, r in ((kn, 0.036 * s), (an, 0.02 * s)):
+                d.ellipse([p[0] - r, p[1] - r, p[0] + r, p[1] + r], fill=v)
+            cap(an, (an[0] + 0.075 * s, an[1] + 0.03 * s), 0.026, v)
+            cap((an[0] - 0.012 * s, an[1] + 0.008 * s), (an[0] - 0.014 * s, an[1] + 0.034 * s), 0.011, v)
+        else:
+            cap(kn, an, 0.072, v)
+            cap(an, (an[0] + 0.075 * s, an[1] + 0.02 * s), 0.035, v)      # the foot, pointing right
 
     def arm(sho_i, v):
         sh, el, wr = pts[sho_i], pts[sho_i + 1], pts[sho_i + 2]
