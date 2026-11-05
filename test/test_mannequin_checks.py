@@ -331,8 +331,8 @@ def test_skirt_flare_measured_on_the_picture():
         m[50 + int(h * (1 - HIP)):50 + int(h * hem), 300 - int(width * h / 2):300 + int(width * h / 2)] = True
         return m
     pencil, aline = ma_skirt_flare(standing(0.11), hem), ma_skirt_flare(standing(0.18), hem)
-    assert pencil < 0.06 and aline > 0.09
-    pts = ma_walk_points(0.0)
+    assert abs(pencil - 0.11) < 0.01 and abs(aline - 0.18) < 0.01
+    pts = ma_walk_points(0.25)                            # the legs together: the skirt's own width shows
     y = int(pts[LHIP][1] + 0.9 * (pts[LKNE][1] - pts[LHIP][1]))
     wide = [int((np.abs(np.asarray(ma_depth(pts, skirt=1.0, flare=f).convert("L")).astype(int)[y] - SKIRT) < 12).sum())
             for f in (pencil, aline)]
@@ -401,3 +401,14 @@ def test_skirt_hem_measured_on_the_pixels():
     rgb[700:1050, 270:330] = (40, 40, 40)                   # black tights below, narrower than the skirt
     person = (rgb < 235).any(-1)
     assert abs(ma_skirt_hem_of(person, rgb) - 0.65) < 0.01
+
+
+def test_skirt_hem_as_wide_as_measured_unless_the_stride_needs_more():
+    from marearts_moim_pose.gait import FIG
+    from marearts_moim_pose.mannequin import ma_skirt_hem
+    apart, together = ma_walk_points(0.0), ma_walk_points(0.25)
+    b, f, _ = ma_skirt_hem(together, 1.0, 0.18)
+    assert abs((f - b) - 0.18 * FIG) < 1                  # legs together: the hem as wide as measured
+    b, f, _ = ma_skirt_hem(apart, 1.0, 0.18)
+    b2, f2, _ = ma_skirt_hem(apart, 1.0, 0.36)
+    assert f - b < f2 - b2 and f - b >= 0.18 * FIG - 1     # a stride never narrows it, a wider skirt stays wider

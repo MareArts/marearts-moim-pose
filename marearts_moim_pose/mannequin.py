@@ -240,16 +240,14 @@ def ma_skirt_hem_of(person: np.ndarray, rgb: np.ndarray) -> float:
 
 
 def ma_skirt_flare(person: np.ndarray, hem: float) -> float:
-    """How far a skirt stands off the legs (ma_depth's flare), from a standing picture's person mask and its hem
-    (share of the height): the figure's width six tenths of the way from the hips down to the hem. On 12 the game skirts
-    the pencil and straight ones were 0.11-0.13 of the height wide there, the A-line and pleated ones 0.16-0.19."""
-    from .gait import HIP
+    """How wide a skirt is at its hem (ma_depth's flare, share of the height), from a standing picture's person mask
+    and its hem (share of the height from the top): the median width just above the hem. On 12 the game skirts the
+    pencil and straight ones were 0.11-0.13 wide there, the A-line and pleated ones 0.17-0.19."""
     ys = np.nonzero(person.any(1))[0]
-    top, h = ys.min(), ys.max() - ys.min()
-    row = person[int(top + h * ((1 - HIP) + 0.6 * (hem - (1 - HIP))))]
-    xs = np.nonzero(row)[0]
-    width = (xs.max() - xs.min()) / max(1, h) if len(xs) else 0.13
-    return float(np.clip(width - 0.07, 0.03, 0.13))
+    top, h = ys.min(), max(1, ys.max() - ys.min())
+    widths = [xs.max() - xs.min() for f in np.linspace(hem - 0.05, hem - 0.01, 9)
+              if len(xs := np.nonzero(person[int(top + f * h)])[0])]
+    return float(np.clip(np.median(widths) / h if widths else 0.14, 0.08, 0.26))
 
 
 def ma_skirt_hem(pts: dict, skirt: float, flare: float | None = None) -> tuple[float, float, float]:
@@ -259,9 +257,13 @@ def ma_skirt_hem(pts: dict, skirt: float, flare: float | None = None) -> tuple[f
         a, b, f = (hp, kn, skirt) if skirt <= 1 else (kn, an, skirt - 1)
         return a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1])
     (x0, y0), (x1, y1) = along(LHIP), along(RHIP)
-    # the cloth stands off the legs: as measured, or more the longer it is
-    room = FIG * (flare if flare is not None else 0.055 + 0.03 * min(skirt, 1.5))
-    return min(x0, x1) - room, max(x0, x1) + room, max(y0, y1)
+    if flare is None:          # the cloth stands off the legs, more the longer it is
+        room = FIG * (0.055 + 0.03 * min(skirt, 1.5))
+        return min(x0, x1) - room, max(x0, x1) + room, max(y0, y1)
+    # a hem as wide as measured standing, wider only where the stride needs it: the measured width added on both
+    # sides of the stride drew an A-line skirt flaring far past her picture's (11-05)
+    mid, half = (x0 + x1) / 2, max(flare * FIG / 2, abs(x1 - x0) / 2 + 0.02 * FIG)
+    return mid - half, mid + half, max(y0, y1)
 
 
 def ma_skirt_outline(pts: dict, skirt: float, flare: float | None = None) -> list[tuple[float, float]]:
