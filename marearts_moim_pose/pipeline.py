@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from .checks import (FACING_SURE, ma_alternate_reason, ma_alternates, ma_clothes_change, ma_cutout,
+from .checks import (FACING_SURE, ma_alternate_reason, ma_alternates, ma_clothes_change, ma_cutout, ma_stray_arm,
                      ma_facing, ma_frame_ok)
 from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, HAND_FIX, HEAD_FIX, STYLE, VIDEO_H, VIDEO_W, WALK,
                     MaComfy, ma_arm_words,
@@ -205,6 +205,9 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
             # A lost hand is drawn in the mannequin's hand crop alone: grown by 30 % it took in the hem and the pocket
             # by the hip, and an older man's frame came out with another hem than its neighbours (11-04)
             fix, dz, grow = ma_video_fix(verdict, hands[i], pts[i], shape["head"]) if not ok else ({}, HAND_FIX, 0.0)
+            if "stray arm" in said:     # the far arm swung forward where it is behind the body: drawn over there
+                m = np.asarray(Image.open(raw / f"{req.kind}_{i}_mask.png").convert("L").resize((W, H))) > 128
+                fix, dz, grow = {"stray": ma_stray_arm(m, depths[i], pts[i])}, EXTRA_FIX, 0.15
             if fix:
                 keep = {p: p.read_bytes() for p in (raw / f"{req.kind}_{i}.png", raw / f"{req.kind}_{i}_mask.png")}
                 kept = (sd, said, verdict)

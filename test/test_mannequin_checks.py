@@ -1,7 +1,8 @@
 import numpy as np
 from PIL import Image
 
-from marearts_moim_pose.checks import REACH_MAX, ma_arm_reach, ma_box_drift, ma_cutout, ma_extra_limbs, ma_frame_ok
+from marearts_moim_pose.checks import (REACH_MAX, ma_arm_reach, ma_box_drift, ma_cutout, ma_extra_limbs, ma_frame_ok,
+                                       ma_stray_arm)
 from marearts_moim_pose.comfy import ARMS_HANG, ARMS_NEAR_BACK, ARMS_NEAR_FORWARD, ma_arm_words
 from marearts_moim_pose.gait import LANK, LELB, LSHO, LWRI, RANK, ma_frame_phases, ma_gait, ma_walk_points
 from marearts_moim_pose.mannequin import NEAR, ma_box_rect, ma_depth, ma_legs_mask, ma_skeleton
@@ -469,3 +470,59 @@ def test_near_leg_lit_without_blowing_out():
     toned = ma_leg_tones([f], [d], 0.9, [pts])[0]
     patch = (dd > 130) & a & (np.arange(a.shape[0])[:, None] % 40 < 6)
     assert toned[patch][:, :3].min() < 250                                  # lit, not white
+
+
+def test_stray_arm_only_where_the_far_arm_is_behind_the_body():
+    for t, hidden in ((0.25, True), (0.0, False)):          # legs passing: far hand behind the body; swung: it shows
+        pts = ma_walk_points(t)
+        dep = ma_depth(pts)
+        person = ma_legs_mask(dep)
+        assert ma_stray_arm(person, dep, pts) is None
+        swung = person.copy()
+        y = int(pts[LSHO][1] + 0.25 * (pts[LWRI][1] - pts[LSHO][1]) + 120)
+        x = int(np.nonzero(person[y])[0].max())
+        swung[y - 100:y + 20, x + 4:x + 90] = True           # a forearm and hand out in front of the body
+        box = ma_stray_arm(swung, dep, pts)
+        if hidden:
+            assert box is not None and box[0] <= x + 30 and box[2] >= x + 85
+            ok, said = ma_frame_ok(np.zeros((*swung.shape, 3), np.uint8), swung, dep, pts, "walk")
+            assert not ok and "stray arm" in said
+        else:
+            assert box is None
+
+
+def test_lock_keeps_the_head_size_when_hair_hides_the_neck():
+    from scipy import ndimage
+    from marearts_moim_pose.lock import ma_head_sizes, ma_lock
+    rng = np.random.default_rng(3)
+    face = ndimage.gaussian_filter(rng.random((120, 120)), 3)
+    face = ((face - face.min()) / np.ptp(face) * 200).astype(np.uint8)
+
+    def frame(r, hair=False):
+        f = np.zeros((600, 400, 4), np.uint8)
+        f[..., :3] = 255
+        yy, xx = np.mgrid[0:600, 0:400]
+        disc = (yy - (40 + r)) ** 2 + (xx - 200) ** 2 < r * r
+        tex = np.asarray(Image.fromarray(face).resize((2 * r, 2 * r)))
+        sub = np.zeros((600, 400), np.uint8)
+        sub[40:40 + 2 * r, 200 - r:200 + r] = tex
+        f[disc, :3] = sub[disc, None]
+        f[disc, 3] = 255
+        f[40 + 2 * r:560, 150:250] = (90, 90, 160, 255)    # the body from under the chin
+        f[40 + 2 * r - 5:560, 180:250, 3] = 255            # the neck
+        if hair:                                            # long hair falling in front of the neck and chest
+            f[40 + r:40 + 2 * r + 60, 240:262] = (230, 220, 180, 255)
+        return f
+    frames = [frame(50), frame(55), frame(50, hair=True)]
+    from marearts_moim_pose.checks import ma_person
+    people = [ma_person(f[..., 3] > 128) for f in frames]
+    sizes = ma_head_sizes(frames, people, 0, 100)
+    assert sizes[0] == 1.0 and abs(sizes[1] - 1.1) <= 0.02 and abs(sizes[2] - 1.0) <= 0.02
+    out = ma_lock(frames, [0.0, 0.0, 0.0], [None] * 3, [None] * 3, align_legs=False)
+
+    def head_rows(f):                                       # the face down its middle column, to the body's blue
+        c = f[:, 200].astype(int)
+        face = (c[:, 3] > 128) & (c[:, 2] - c[:, 0] < 40)
+        return int(face[:np.nonzero((c[:, 3] > 128) & (c[:, 2] - c[:, 0] >= 40))[0].min()].sum())
+    rows = [head_rows(f) for f in out]
+    assert abs(rows[1] - rows[0]) <= 3 and abs(rows[2] - rows[0]) <= 3, rows

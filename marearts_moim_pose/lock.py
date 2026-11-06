@@ -3,7 +3,7 @@
 Drawn one by one, a walk's frames still differ a few percent in height and head size, and the figure wanders
 sideways. One frame is the master; every frame gets
   1. its height from the walk: the feet on the master's floor, the top of the head on the walk's own smooth wave,
-     the head-to-neck length the master's (scaled, easing back over the shoulders),
+     the head the master's size (found by matching the master's head in it, scaled, easing back over the shoulders),
   2. its place from its own mannequin: the drawn legs laid on the mannequin's legs, so the planted foot goes back
      evenly as the gait planned and does not slide.
 """
@@ -171,6 +171,45 @@ def _ma_power_to(px: np.ndarray, target: float) -> float:
     return (lo + hi) / 2
 
 
+def ma_head_sizes(frames: list[np.ndarray], people: list[np.ndarray], master: int, rows: int) -> list[float]:
+    """How big each frame's head is against the master's (1.0 = the same): the master's head (its top `rows` rows,
+    grey on white) found in each frame at scales 0.85-1.18, the scale that matches best. A woman's long hair over her
+    neck moved the neck read from the front edge 23 px in four frames of twelve, and her head drawn the same size was
+    made 13 % bigger in those (11-06); the head itself does not move with the hair. A match under 0.5 says nothing:
+    1.0 then."""
+    from skimage.feature import match_template
+    from skimage.transform import rescale
+
+    def grey(f):
+        a = f[..., 3:4] / 255.0
+        return (f[..., :3] * a + 255 * (1 - a)).mean(-1) / 255.0
+
+    M = ma_marks(people[master])
+    band = people[master][M["top"]:M["top"] + rows]
+    xs = np.nonzero(band.any(0))[0]
+    tpl = grey(frames[master])[M["top"]:M["top"] + rows, xs.min():xs.max() + 1]
+    out = []
+    for i, (f, p) in enumerate(zip(frames, people)):
+        if i == master:
+            out.append(1.0)
+            continue
+        m = ma_marks(p)
+        cols = np.nonzero(p[m["top"]:m["top"] + rows].any(0))[0]
+        g = grey(f)
+        best = (0.5, 1.0)
+        for s in np.arange(0.85, 1.185, 0.01):
+            t = rescale(tpl, s, anti_aliasing=True)
+            y0, x0 = max(0, m["top"] - 20), max(0, cols.min() - 40)
+            win = g[y0:m["top"] + t.shape[0] + 40, x0:cols.max() + 41]
+            if win.shape[0] < t.shape[0] or win.shape[1] < t.shape[1]:
+                continue
+            r = float(match_template(win, t).max())
+            if r > best[0]:
+                best = (r, float(s))
+        out.append(best[1])
+    return out
+
+
 def ma_lock(frames: list[np.ndarray], phases: list[float], pts: list[dict], depths: list, master: int = 0,
             align_legs: bool = True) -> list[np.ndarray]:
     """RGBA frames (same size) -> RGBA frames with one height, one head size and an even step."""
@@ -178,6 +217,7 @@ def ma_lock(frames: list[np.ndarray], phases: list[float], pts: list[dict], dept
     people = [ma_person(f[..., 3] > 128) for f in frames]
     M = ma_marks(people[master])
     torso, height = M["neck"] - M["top"], M["floor"] - M["top"]
+    heads = ma_head_sizes(frames, people, master, torso)
     tall = [ma_height_wave(t) for t in phases]
     H, W = frames[0].shape[:2]
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float64)
@@ -185,9 +225,9 @@ def ma_lock(frames: list[np.ndarray], phases: list[float], pts: list[dict], dept
     for i, (f, p) in enumerate(zip(frames, people)):
         m = ma_marks(p)
         top = M["floor"] - height * tall[i] / tall[master]
-        s = torso / max(1, m["neck"] - m["top"])
+        s = 1 / heads[i]
         yo = np.array([0, top, top + torso, M["floor"], H - 1], float)      # output row -> source row
-        ys = np.array([0, m["top"], m["neck"], m["floor"], H - 1], float)
+        ys = np.array([0, m["top"], m["top"] + torso * heads[i], m["floor"], H - 1], float)
         if yo[1] <= 0:
             yo[0], ys[0] = yo[1] - 1, ys[1] - 1
         Y = np.interp(np.arange(H), yo, ys)

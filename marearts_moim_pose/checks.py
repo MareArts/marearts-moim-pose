@@ -77,6 +77,42 @@ def ma_arm_reach(mask: np.ndarray, depth: Image.Image, pts: dict) -> float:
     return float(max(np.percentile(ahead, 90), np.percentile(behind, 90)) / h * 100)
 
 
+def ma_stray_arm(mask: np.ndarray, depth: Image.Image, pts: dict) -> tuple[int, int, int, int] | None:
+    """An arm drawn in front of the body where the mannequin has none: its box (frame pixels), or None.
+
+    Where the legs pass, the mannequin's far arm is behind the body; the video drew it swung forward all the same,
+    the near arm hanging beside it and the near arm of the frames around swinging, a third arm to the eye (four
+    people of four, frames 2-4 and 8-10, 11-06). Only where the mannequin's far hand is hidden: where it shows, an
+    arm past it is that arm reaching further, and taking its end off leaves an arm without a hand."""
+    from scipy import ndimage
+    from .gait import LSHO, RSHO
+    from .judge import ma_hand_box
+    x0, y0, x1, y1 = ma_hand_box(pts, RSHO + 2)
+    far = np.asarray(depth.convert("L"))[max(0, y0):max(0, y1), max(0, x0):max(0, x1)]
+    if not far.size or (far > 130).mean() < 0.5:        # the far hand shows (ma_hidden in the pipeline)
+        return None
+    m = ma_person(mask)
+    man = np.asarray(depth.convert("L").resize(m.shape[::-1])) > 20
+    ys = np.nonzero(m.any(1))[0]
+    h = ys.max() - ys.min()
+    man = ndimage.binary_dilation(man, iterations=max(1, int(0.01 * h)))
+    r0 = int(pts[LSHO][1] + 0.08 * h)
+    r1 = min(int(max(pts[LSHO + 2][1], pts[RSHO + 2][1]) + 0.03 * h), len(m))
+    ahead = np.zeros_like(m)
+    for r in range(r0, r1):
+        b = np.nonzero(man[r])[0]
+        if len(b):
+            ahead[r, b.max() + 1:] = m[r, b.max() + 1:]
+    lab, k = ndimage.label(ahead)
+    if not k:
+        return None
+    big = 1 + int(np.argmax(ndimage.sum(ahead, lab, range(1, k + 1))))
+    yy, xx = np.nonzero(lab == big)
+    if xx.max() - xx.min() < REACH_MAX / 100 * h:
+        return None
+    return int(xx.min()), int(yy.min()), int(xx.max()) + 1, int(yy.max()) + 1
+
+
 # Clothes from frame to frame (grey levels, the torso away from both arms): drawn one by one from the picture an
 # older man's walk changed up to 33 between frames, drawn as a video 14.5-18. A number to look at, not a check: wide
 # sleeves over the coat move it too (a 14B video the eye saw as one look measured up to 25).
@@ -136,6 +172,9 @@ def ma_frame_ok(rgb: np.ndarray, mask: np.ndarray, depth: Image.Image, pts: dict
         reach = ma_arm_reach(mask, depth, pts)
         said += f", arms {reach:.1f}"
         ok = ok and reach <= REACH_MAX
+        if ma_stray_arm(mask, depth, pts):
+            said += ", stray arm"
+            ok = False
     if kind == "carry":
         top, end = ma_box_drift(rgb, mask, pts)
         said += f", box top {top:+.0f} px, end face {end:.2f}"
