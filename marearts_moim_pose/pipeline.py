@@ -30,12 +30,17 @@ from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, HAND_
                     ma_sharpen_graph, ma_video_graph)
 from .gait import LSHO, RSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
 from .judge import HEAD_FLOOR, HEAD_MIN, HEAD_SLACK, ma_hand_box, ma_hand_boxes
-from .lock import ma_colour_match, ma_leg_tones, ma_lock
+from .lock import ma_colour_match, ma_head_match, ma_leg_tones, ma_lock, ma_marks
 from .mannequin import ma_arms_on_body, ma_box_rect, ma_depth, ma_fit, ma_skirt_at, ma_skirt_flare, ma_skirt_hem, ma_skirt_hem_of, ma_skirt_of
 from .sheet import ma_loop_gif, ma_meta, ma_review_sheet, ma_sheet, ma_sprites, ma_strip_gif
 
 NEIGHBOUR_TRIES = 3     # an older man's arm half way back: 12 seeds failed from his picture, 1 in 3 from frame 1
 SEEDS = (0, 4, 16, 23, 42, 61)          # offsets from the seed; about one frame in twenty needs a second try
+# A head drawn again must not turn away from frame 0: two women's video heads, scored 0.90-0.91 against the picture
+# (a bar of 0.92), drawn again came out turned, a tic in the walk; their pixels matched frame 0's head at 0.80-0.84
+# where the video's heads around them matched at 0.93-0.99 (11-06). Kept only if it matches frame 0 at least as well
+# as the head it replaces, less this.
+HEAD_TURN = 0.02
 
 
 def ma_reference(im: Image.Image) -> Image.Image:
@@ -187,6 +192,14 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     def cut(i):
         return ma_cutout(Image.open(raw / f"{req.kind}_{i}.png"), Image.open(raw / f"{req.kind}_{i}_mask.png"))
 
+    def face0(i):
+        """How well frame i's head, as drawn now, matches frame 0's (pixels, ma_head_match)."""
+        from .checks import ma_person
+        a, b = np.asarray(cut(i)), np.asarray(cut(0))
+        pa, pb = ma_person(a[..., 3] > 128), ma_person(b[..., 3] > 128)
+        M = ma_marks(pb)
+        return ma_head_match(a, pa, b, pb, M["neck"] - M["top"])[0]
+
     def draw_frame(i):
         """Frame i through its seeds (and the ways back), its report row written."""
         t0 = time.time()
@@ -213,12 +226,17 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
             if fix:
                 keep = {p: p.read_bytes() for p in (raw / f"{req.kind}_{i}.png", raw / f"{req.kind}_{i}_mask.png")}
                 kept = (sd, said, verdict)
+                face = face0(i) if "head" in fix else None
                 sharp = comfy.upload(frame, f"{req.name}_{req.kind}_sharp_{i}.png")
                 mask = comfy.upload(fix["stray"] if "stray" in fix else ma_hands_mask(fix, grow),
                                     f"{req.name}_{req.kind}_fix_{i}.png")
                 for sd in [x for x in ma_seeds(req.seed) if x not in tried][:tries]:
                     tried = tried + [sd]
                     ok, said, verdict = draw(i, sd, fref, start=sharp, mask=mask, denoise=dz)
+                    if ok and face is not None and face0(i) < face - HEAD_TURN:
+                        ok = False
+                        log(f"frame {i} seed {sd}: the head drawn again turned away from frame 0 "
+                            f"({face0(i):.2f} < {face:.2f}), again")
                     if ok:
                         log(f"frame {i} seed {sd}: mended ({', '.join(fix)}), ok")
                         break
@@ -230,6 +248,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
                         sharp = comfy.upload(Image.open(raw / f"{req.kind}_{i}.png").convert("RGB"),
                                              f"{req.name}_{req.kind}_sharp_{i}.png")
                         fix, dz, fref = {"head": ma_head_box(pts[i], shape["head"])}, HEAD_FIX, look
+                        face = face0(i)
                         mask = comfy.upload(ma_hands_mask(fix, 0.0), f"{req.name}_{req.kind}_fix_{i}.png")
                 if not ok:              # the video's own frame, made sharp, for a person's look
                     for p, data in keep.items():

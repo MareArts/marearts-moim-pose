@@ -23,6 +23,7 @@ class Fake(BaseHTTPRequestHandler):
     count = [0]
     same_foot: set = set()
     stray: set = set()
+    turn: set = set()
     calls: list = []
 
     def log_message(self, *a):
@@ -81,6 +82,15 @@ class Fake(BaseHTTPRequestHandler):
             big = im.resize((int(w * k), int(h * k)))
             can = Image.new("RGB", (w, h), "white")
             can.paste(big, ((w - big.width) // 2, h - big.height))
+            if frame in self.turn and "45" in g:              # a head drawn again comes out turned
+                a = np.asarray(can).copy()
+                rows = np.nonzero((a < 250).any(-1).any(1))[0]
+                top = rows.min()
+                h = int(0.16 * (rows.max() - top))
+                cols = np.nonzero((a[top:top + h] < 250).any(-1).any(0))[0]
+                a[top:top + h, cols.min():cols.max() + 1] = a[top:top + h, cols.min():cols.max() + 1][:, ::-1]
+                a[top + h // 3:top + 2 * h // 3, cols.min():cols.min() + (cols.max() - cols.min()) // 2] = (40, 40, 40)
+                can = Image.fromarray(a)
             if frame in self.stray and "40" in g and "45" not in g:   # a far arm swung out in front, as made sharp
                 a = np.asarray(can).copy()
                 x = int(np.nonzero((a[600] < 250).any(-1))[0].max())
@@ -598,3 +608,42 @@ def test_video_frame_with_a_stray_arm_wiped_then_its_own_head_drawn_again(tmp_pa
     assert any("mended (head)" in s for s in lines), lines
     assert row["passed"] and len(row["tried"]) == 3, row
     assert ("fix", STRAY_FIX) in Fake.calls and ("fix", HEAD_FIX) in Fake.calls
+
+
+def test_head_drawn_again_that_turns_away_from_frame_0_is_not_kept(tmp_path):
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    Fake.calls.clear()
+    Fake.turn = {2}
+
+    class Judge:
+        """Frame 2's head scores under the bar; every head drawn again for it comes out turned."""
+        def __init__(self):
+            self.n = 0
+
+        def arms_ok(self, im, kind, hands=None):
+            return True, "2; near hand there"
+
+        def feet_ok(self, im):
+            return True, "2"
+
+        def head_likeness(self, im, ref):
+            self.n += 1
+            return 0.8 if self.n == 5 else 0.97                 # frame 0 three times, 1, then frame 2 sharp
+
+        def facing(self, im):
+            return "right"
+    try:
+        ref = tmp_path / "person.png"
+        Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
+        lines = []
+        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120),
+                            MaComfy(f"http://127.0.0.1:{srv.server_port}"), judge=Judge(), log=lines.append)
+    finally:
+        srv.shutdown()
+        Fake.turn = set()
+    row = next(r for r in res["report"] if r["frame"] == 2)
+    assert any("turned away from frame 0" in s for s in lines), [s for s in lines if "frame 2" in s]
+    assert not any("frame 2" in s and "mended (head)" in s for s in lines)
+    assert any("frame 2: kept the video's frame" in s for s in lines)   # the video's own head, not a turned one
+    assert not row["passed"]

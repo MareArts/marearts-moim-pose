@@ -171,12 +171,10 @@ def _ma_power_to(px: np.ndarray, target: float) -> float:
     return (lo + hi) / 2
 
 
-def ma_head_sizes(frames: list[np.ndarray], people: list[np.ndarray], master: int, rows: int) -> list[float]:
-    """How big each frame's head is against the master's (1.0 = the same): the master's head (its top `rows` rows,
-    grey on white) found in each frame at scales 0.85-1.18, the scale that matches best. A woman's long hair over her
-    neck moved the neck read from the front edge 23 px in four frames of twelve, and her head drawn the same size was
-    made 13 % bigger in those (11-06); the head itself does not move with the hair. A match under 0.5 says nothing:
-    1.0 then."""
+def ma_head_match(frame: np.ndarray, person: np.ndarray, master: np.ndarray, mperson: np.ndarray,
+                  rows: int) -> tuple[float, float]:
+    """The master's head (its top `rows` rows, grey on white) found in an RGBA frame at scales 0.85-1.18: (how well
+    it matches at the best scale, 0-1, that scale)."""
     from skimage.feature import match_template
     from skimage.transform import rescale
 
@@ -184,29 +182,34 @@ def ma_head_sizes(frames: list[np.ndarray], people: list[np.ndarray], master: in
         a = f[..., 3:4] / 255.0
         return (f[..., :3] * a + 255 * (1 - a)).mean(-1) / 255.0
 
-    M = ma_marks(people[master])
-    band = people[master][M["top"]:M["top"] + rows]
-    xs = np.nonzero(band.any(0))[0]
-    tpl = grey(frames[master])[M["top"]:M["top"] + rows, xs.min():xs.max() + 1]
+    M = ma_marks(mperson)
+    xs = np.nonzero(mperson[M["top"]:M["top"] + rows].any(0))[0]
+    tpl = grey(master)[M["top"]:M["top"] + rows, xs.min():xs.max() + 1]
+    m = ma_marks(person)
+    cols = np.nonzero(person[m["top"]:m["top"] + rows].any(0))[0]
+    g = grey(frame)
+    best = (0.0, 1.0)
+    for s in np.arange(0.85, 1.185, 0.01):
+        t = rescale(tpl, s, anti_aliasing=True)
+        y0, x0 = max(0, m["top"] - 20), max(0, cols.min() - 40)
+        win = g[y0:m["top"] + t.shape[0] + 40, x0:cols.max() + 41]
+        if win.shape[0] < t.shape[0] or win.shape[1] < t.shape[1]:
+            continue
+        r = float(match_template(win, t).max())
+        if r > best[0]:
+            best = (r, float(s))
+    return best
+
+
+def ma_head_sizes(frames: list[np.ndarray], people: list[np.ndarray], master: int, rows: int) -> list[float]:
+    """How big each frame's head is against the master's (1.0 = the same): the scale its head matches best at
+    (ma_head_match). A woman's long hair over her neck moved the neck read from the front edge 23 px in four frames
+    of twelve, and her head drawn the same size was made 13 % bigger in those (11-06); the head itself does not move
+    with the hair. A match under 0.5 says nothing: 1.0 then."""
     out = []
     for i, (f, p) in enumerate(zip(frames, people)):
-        if i == master:
-            out.append(1.0)
-            continue
-        m = ma_marks(p)
-        cols = np.nonzero(p[m["top"]:m["top"] + rows].any(0))[0]
-        g = grey(f)
-        best = (0.5, 1.0)
-        for s in np.arange(0.85, 1.185, 0.01):
-            t = rescale(tpl, s, anti_aliasing=True)
-            y0, x0 = max(0, m["top"] - 20), max(0, cols.min() - 40)
-            win = g[y0:m["top"] + t.shape[0] + 40, x0:cols.max() + 41]
-            if win.shape[0] < t.shape[0] or win.shape[1] < t.shape[1]:
-                continue
-            r = float(match_template(win, t).max())
-            if r > best[0]:
-                best = (r, float(s))
-        out.append(best[1])
+        r, s = (1.0, 1.0) if i == master else ma_head_match(f, p, frames[master], people[master], rows)
+        out.append(s if r > 0.5 else 1.0)
     return out
 
 
