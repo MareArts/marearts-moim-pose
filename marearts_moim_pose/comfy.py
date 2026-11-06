@@ -232,8 +232,13 @@ def _ma_video14_graph(depth_images, first_image, prompt, seed, width, height, pr
 # 6.9 and came out as sharp as a drawn frame (11-03). From frame 0's look and over the person's own mannequin, more
 # is better on both counts: on six frames each of two women, detail (the lines inside the figure) 14.4 -> 16.5 and
 # 11.6 -> 14.3, the clothes from frame to frame 21.1 -> 14.9 and 42.3 -> 40.7, from 30 % to 60 %; at 30 % the
-# video's low size showed as soft lines, cuffs and pleats next to the app's drawings (11-05).
-SHARPEN = 0.6
+# video's low size showed as soft lines, cuffs and pleats next to the app's drawings (11-05). But from 50 % up it takes
+# frame 0's pose too: the video put the arms where the mannequin has them (forward reach 11.1 against 11.4), made
+# sharp at 60 % they reached 17, frame 0's arm in front in every frame, a third arm where the legs pass and an arm
+# held out a frame too long, then snapping back (four women of four, 11-06). Past the mannequin at 40 %: 0.0 on
+# two women; at 50 % 3.6, at 60 % 5.4-10. 40 % is the most that keeps the video's pose (detail 10.4 and 14.7 against
+# 11.8 and 16.7 at 60 %; twice at 40 % no more).
+SHARPEN = 0.4
 
 
 def ma_sharpen_graph(depth_image: str, ref_image: str, start_image: str, prompt: str, seed: int = 7,
