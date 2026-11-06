@@ -526,3 +526,22 @@ def test_lock_keeps_the_head_size_when_hair_hides_the_neck():
         return int(face[:np.nonzero((c[:, 3] > 128) & (c[:, 2] - c[:, 0] >= 40))[0].min()].sum())
     rows = [head_rows(f) for f in out]
     assert abs(rows[1] - rows[0]) <= 3 and abs(rows[2] - rows[0]) <= 3, rows
+
+
+def test_stray_arm_wiped_and_only_a_band_round_it_drawn_again():
+    from marearts_moim_pose.pipeline import ma_stray_wipe
+    pts = ma_walk_points(0.25)
+    dep = ma_depth(pts)
+    person = ma_legs_mask(dep)
+    y = int(pts[LSHO][1] + 0.25 * (pts[LWRI][1] - pts[LSHO][1]) + 120)
+    x = int(np.nonzero(person[y])[0].max())
+    person[y - 100:y + 20, x + 4:x + 90] = True               # the far forearm and hand out in front
+    rgb = np.full((*person.shape, 3), 255, np.uint8)
+    rgb[person] = (200, 30, 30)
+    wiped, band = ma_stray_wipe(Image.fromarray(rgb), person, dep, ma_stray_arm(person, dep, pts))
+    w, b = np.asarray(wiped), np.asarray(band.convert("L")) > 128
+    assert (w[y - 90:y + 10, x + 20:x + 85] == 255).all()        # the hand is gone
+    assert (w[y - 50, x - 30] == (200, 30, 30)).all()            # the body stays as drawn
+    edge = int(np.nonzero((w[y - 50] != 255).any(-1))[0].max())  # where the body is cut
+    assert b[y - 50, x + 50] and b[y - 50, edge - 3:edge + 1].all()   # the band takes in the wiped part and the cut
+    assert not b[y - 50, x - 60] and b.mean() < 0.02             # and nothing much else

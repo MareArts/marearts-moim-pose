@@ -260,6 +260,12 @@ EXTRA_FIX = 0.85
 # of the noise in the mannequin's head and hair, from frame 0's look, the clothes below kept as the video drew them;
 # drawn whole on its own instead, a frame came out in another skirt or another cardigan (11-05).
 HEAD_FIX = 0.85
+# A far arm swung forward where the mannequin has it behind the body: drawn over in its box, it came back in every seed,
+# from 85 % and from all the noise, from frame 0's look and from the standing picture (a woman's far hand by her near
+# one, 11-06). Wiped white first and only a band 14 px round the wiped part drawn again, from 65 % of the noise and the
+# standing picture: the skirt's front edge and the cut sleeve healed, no hand in eight tries of eight.
+STRAY_FIX = 0.65
+STRAY_BAND = 14
 
 
 def ma_hand_fix_graph(depth_image: str, ref_image: str, start_image: str, mask_image: str, prompt: str,

@@ -24,7 +24,7 @@ from PIL import Image
 
 from .checks import (FACING_SURE, ma_alternate_reason, ma_alternates, ma_clothes_change, ma_cutout, ma_stray_arm,
                      ma_facing, ma_frame_ok)
-from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, HAND_FIX, HEAD_FIX, STYLE, VIDEO_H, VIDEO_W, WALK,
+from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, HAND_FIX, HEAD_FIX, STRAY_BAND, STRAY_FIX, STYLE, VIDEO_H, VIDEO_W, WALK,
                     MaComfy, ma_arm_words,
                     ma_cutout_graph, ma_hand_fix_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt,
                     ma_sharpen_graph, ma_video_graph)
@@ -205,18 +205,20 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
             # A lost hand is drawn in the mannequin's hand crop alone: grown by 30 % it took in the hem and the pocket
             # by the hip, and an older man's frame came out with another hem than its neighbours (11-04)
             fix, dz, grow = ma_video_fix(verdict, hands[i], pts[i], shape["head"]) if not ok else ({}, HAND_FIX, 0.0)
-            if "stray arm" in said:     # the far arm swung forward where it is behind the body: drawn over there
-                m = np.asarray(Image.open(raw / f"{req.kind}_{i}_mask.png").convert("L").resize((W, H))) > 128
-                fix, dz, grow = {"stray": ma_stray_arm(m, depths[i], pts[i])}, EXTRA_FIX, 0.15
+            frame, fref = Image.open(raw / f"{req.kind}_{i}.png").convert("RGB"), look
+            if "stray arm" in said:     # the far arm swung forward where it is behind the body: wiped, edges drawn
+                m = np.asarray(Image.open(raw / f"{req.kind}_{i}_mask.png").convert("L").resize(frame.size)) > 128
+                frame, band = ma_stray_wipe(frame, m, depths[i], ma_stray_arm(m, depths[i], pts[i]))
+                fix, dz, grow, fref = {"stray": band}, STRAY_FIX, 0.0, ref_name
             if fix:
                 keep = {p: p.read_bytes() for p in (raw / f"{req.kind}_{i}.png", raw / f"{req.kind}_{i}_mask.png")}
                 kept = (sd, said, verdict)
-                sharp = comfy.upload(Image.open(raw / f"{req.kind}_{i}.png").convert("RGB"),
-                                     f"{req.name}_{req.kind}_sharp_{i}.png")
-                mask = comfy.upload(ma_hands_mask(fix, grow), f"{req.name}_{req.kind}_fix_{i}.png")
+                sharp = comfy.upload(frame, f"{req.name}_{req.kind}_sharp_{i}.png")
+                mask = comfy.upload(fix["stray"] if "stray" in fix else ma_hands_mask(fix, grow),
+                                    f"{req.name}_{req.kind}_fix_{i}.png")
                 for sd in [x for x in ma_seeds(req.seed) if x not in tried][:tries]:
                     tried = tried + [sd]
-                    ok, said, verdict = draw(i, sd, look, start=sharp, mask=mask, denoise=dz)
+                    ok, said, verdict = draw(i, sd, fref, start=sharp, mask=mask, denoise=dz)
                     if ok:
                         log(f"frame {i} seed {sd}: mended ({', '.join(fix)}), ok")
                         break
@@ -356,6 +358,27 @@ def ma_video_fix(verdict: str, hands: dict, pts: dict, head: float = 0.19) -> tu
     if hands and "missing" in verdict:
         return hands, HAND_FIX, 0.0
     return ma_extra_hands(ma_hand_boxes(verdict), pts), EXTRA_FIX, 0.3
+
+
+def ma_stray_wipe(frame: Image.Image, mask: np.ndarray, depth: Image.Image,
+                  box: tuple[int, int, int, int]) -> tuple[Image.Image, Image.Image]:
+    """A stray arm wiped white (the part of its box in front of the mannequin, grown 3 px) and the band round it to
+    draw again (white, edges soft): (the wiped frame, the band)."""
+    from PIL import ImageFilter
+    from scipy import ndimage
+    from .checks import ma_person
+    p = ma_person(mask)
+    man = np.asarray(depth.convert("L").resize(p.shape[::-1])) > 20
+    man = ndimage.binary_dilation(man, iterations=max(1, int(0.01 * np.ptp(np.nonzero(p.any(1))[0]))))
+    x0, y0, x1, y1 = box
+    wipe = np.zeros_like(p)
+    wipe[y0:y1, x0:x1] = True
+    wipe = ndimage.binary_dilation(wipe & ~man, iterations=3) & ~man
+    rgb = np.asarray(frame.convert("RGB")).copy()
+    rgb[wipe] = 255
+    band = ndimage.binary_dilation(wipe, iterations=STRAY_BAND)
+    return (Image.fromarray(rgb),
+            Image.fromarray((band * 255).astype(np.uint8)).convert("RGB").filter(ImageFilter.GaussianBlur(4)))
 
 
 def ma_hands_mask(boxes: dict, grow: float = 0.3) -> Image.Image:
