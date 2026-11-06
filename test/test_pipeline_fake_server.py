@@ -22,6 +22,7 @@ class Fake(BaseHTTPRequestHandler):
     outputs: dict = {}
     count = [0]
     same_foot: set = set()
+    stray: set = set()
     calls: list = []
 
     def log_message(self, *a):
@@ -80,6 +81,11 @@ class Fake(BaseHTTPRequestHandler):
             big = im.resize((int(w * k), int(h * k)))
             can = Image.new("RGB", (w, h), "white")
             can.paste(big, ((w - big.width) // 2, h - big.height))
+            if frame in self.stray and "40" in g and "45" not in g:   # a far arm swung out in front, as made sharp
+                a = np.asarray(can).copy()
+                x = int(np.nonzero((a[600] < 250).any(-1))[0].max())
+                a[540:660, x - 2:x + 90] = (90, 120, 200)            # joined to the body, as an arm is
+                can = Image.fromarray(a)
             out = can
         else:                                             # a cut-out mask
             a = np.asarray(self.uploads[g["2"]["inputs"]["image"]].convert("L"))
@@ -551,3 +557,44 @@ def test_far_hand_asked_for_only_where_the_mannequin_shows_it():
     hid = {i: ma_hidden(ma_depth(pts[i], skirt=1.05), ma_hand_box(pts[i], RSHO + 2)) for i in swung}
     assert [i for i in swung if hid[i] < 0.5] == [0, 1, 11]      # well out in front: asked for
     assert all(hid[i] > 0.5 for i in (2, 10))                      # at the half swing, behind her skirt: not
+
+
+def test_video_frame_with_a_stray_arm_wiped_then_its_own_head_drawn_again(tmp_path):
+    from marearts_moim_pose.comfy import STRAY_FIX
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    Fake.calls.clear()
+    Fake.stray = {2}                                        # frame 2: the legs pass, the far hand is behind the body
+
+    class Judge:
+        """Frame 2's arm wiped, its head (the video's own) then unlike the picture; drawn again, it is like."""
+        def __init__(self):
+            self.n = 0
+
+        def arms_ok(self, im, kind, hands=None):
+            return True, "2; near hand there"
+
+        def feet_ok(self, im):
+            return True, "2"
+
+        def head_likeness(self, im, ref):
+            self.n += 1
+            return 0.8 if self.n == 5 else 0.97                 # frame 0 three times, 1, then frame 2 arm mended
+
+        def facing(self, im):
+            return "right"
+    try:
+        ref = tmp_path / "person.png"
+        Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
+        lines = []
+        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120),
+                            MaComfy(f"http://127.0.0.1:{srv.server_port}"), judge=Judge(), log=lines.append)
+    finally:
+        srv.shutdown()
+        Fake.stray = set()
+    row = next(r for r in res["report"] if r["frame"] == 2)
+    assert any("stray arm" in s for s in lines), [s for s in lines if "frame 2" in s]
+    assert any("arm mended, the head next" in s for s in lines), lines
+    assert any("mended (head)" in s for s in lines), lines
+    assert row["passed"] and len(row["tried"]) == 3, row
+    assert ("fix", STRAY_FIX) in Fake.calls and ("fix", HEAD_FIX) in Fake.calls

@@ -222,6 +222,15 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
                     if ok:
                         log(f"frame {i} seed {sd}: mended ({', '.join(fix)}), ok")
                         break
+                    # the stray arm gone and only the head left, the video's own head (the arm made the frame fail
+                    # before its head was looked at; a girl's far arm wiped in six seeds of seven, each one then
+                    # failed at head 0.90 against her bar of 0.91, 11-06): that head drawn again on the mended frame
+                    if "stray" in fix and "stray arm" not in said and "another person" in verdict:
+                        log(f"frame {i} seed {sd}: arm mended, the head next")
+                        sharp = comfy.upload(Image.open(raw / f"{req.kind}_{i}.png").convert("RGB"),
+                                             f"{req.name}_{req.kind}_sharp_{i}.png")
+                        fix, dz, fref = {"head": ma_head_box(pts[i], shape["head"])}, HEAD_FIX, look
+                        mask = comfy.upload(ma_hands_mask(fix, 0.0), f"{req.name}_{req.kind}_fix_{i}.png")
                 if not ok:              # the video's own frame, made sharp, for a person's look
                     for p, data in keep.items():
                         p.write_bytes(data)
