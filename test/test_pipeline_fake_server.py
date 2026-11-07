@@ -710,11 +710,18 @@ def test_smeared_feet_drawn_again_from_frame_0(tmp_path):
     Fake.blur_feet = {3}
 
     class Judge:
+        """Frame 3's head, the video's own, under the bar every time: the feet are mended all the same."""
+        def __init__(self):
+            self.frame3 = False
+
         def arms_ok(self, im, kind, hands=None):
             return True, "2; near hand there"
 
         def feet_ok(self, im):
             return True, "2"
+
+        def head_likeness(self, im, ref):
+            return 0.97
 
         def facing(self, im):
             return "right"
@@ -722,8 +729,15 @@ def test_smeared_feet_drawn_again_from_frame_0(tmp_path):
         ref = tmp_path / "person.png"
         Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
         lines = []
+        judge = Judge()
+        head = {"n": 0}
+
+        def likeness(im, ref):                              # under the bar once frame 3's feet are being mended
+            head["n"] += 1
+            return 0.8 if ("fix", FEET_FIX) in Fake.calls else 0.97
+        judge.head_likeness = likeness
         res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120),
-                            MaComfy(f"http://127.0.0.1:{srv.server_port}"), judge=Judge(), log=lines.append)
+                            MaComfy(f"http://127.0.0.1:{srv.server_port}"), judge=judge, log=lines.append)
     finally:
         srv.shutdown()
         Fake.blur_feet = set()
@@ -732,4 +746,5 @@ def test_smeared_feet_drawn_again_from_frame_0(tmp_path):
     assert any("drawn again" in s and s.endswith("ok") for s in said), said
     assert ("fix", FEET_FIX) in Fake.calls
     row = next(r for r in res["report"] if r["frame"] == 3)
-    assert row["checks"] and 0.75 <= row["feet"] <= 1.3, {k: row[k] for k in ("checks", "passed", "reason", "feet")}
+    assert 0.75 <= row["feet"] <= 1.3, row                   # the feet as the rest (its head, under the bar, is
+    assert not row["checks"]                                 # still the video's: frame 0's goes on it at the end)
