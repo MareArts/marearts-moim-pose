@@ -25,6 +25,7 @@ class Fake(BaseHTTPRequestHandler):
     stray: set = set()
     turn: set = set()
     texts: list = []
+    blur_feet: set = set()
     calls: list = []
 
     def log_message(self, *a):
@@ -85,6 +86,15 @@ class Fake(BaseHTTPRequestHandler):
             big = im.resize((int(w * k), int(h * k)))
             can = Image.new("RGB", (w, h), "white")
             can.paste(big, ((w - big.width) // 2, h - big.height))
+            if self.blur_feet:                                  # shoes drawn with fine lines, as a drawing has
+                a = np.asarray(can).astype(int)
+                rows = np.nonzero((a < 250).any(-1).any(1))[0]
+                y0 = int(rows.max() - 0.2 * (rows.max() - rows.min()))
+                if not (frame in self.blur_feet and "40" in g and "45" not in g):   # the video smeared these
+                    fig = (a[y0:] < 250).any(-1)
+                    lines = (np.add.outer(np.arange(a.shape[0] - y0), np.arange(a.shape[1])) % 6 < 2) & fig
+                    a[y0:][lines] = (40, 30, 30)
+                can = Image.fromarray(a.clip(0, 255).astype(np.uint8))
             if frame in self.turn and "45" in g:              # a head drawn again comes out turned
                 a = np.asarray(can).copy()
                 rows = np.nonzero((a < 250).any(-1).any(1))[0]
@@ -690,3 +700,36 @@ def test_person_described_head_to_toe_in_every_frame_and_the_video(tmp_path):
     assert all("a young woman, brown shoes" in t for t in texts)     # the person's own words kept
     assert Judge.asked == 1                                      # asked once: the walk and the box drawn alike
     assert "white ankle socks" in (out / "raw" / "look.txt").read_text()
+
+
+def test_smeared_feet_drawn_again_from_frame_0(tmp_path):
+    from marearts_moim_pose.comfy import FEET_FIX
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    Fake.calls.clear()
+    Fake.blur_feet = {3}
+
+    class Judge:
+        def arms_ok(self, im, kind, hands=None):
+            return True, "2; near hand there"
+
+        def feet_ok(self, im):
+            return True, "2"
+
+        def facing(self, im):
+            return "right"
+    try:
+        ref = tmp_path / "person.png"
+        Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
+        lines = []
+        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120),
+                            MaComfy(f"http://127.0.0.1:{srv.server_port}"), judge=Judge(), log=lines.append)
+    finally:
+        srv.shutdown()
+        Fake.blur_feet = set()
+    said = [s for s in lines if "feet" in s]
+    assert said and all(s.startswith("frame 3") for s in said), said        # only the smeared frame
+    assert any("drawn again" in s and s.endswith("ok") for s in said), said
+    assert ("fix", FEET_FIX) in Fake.calls
+    row = next(r for r in res["report"] if r["frame"] == 3)
+    assert row["checks"] and 0.75 <= row["feet"] <= 1.3, {k: row[k] for k in ("checks", "passed", "reason", "feet")}

@@ -333,3 +333,18 @@ def ma_alternate_reason(alt: dict, i: int) -> str:
             j = p["frames"][1] if p["frames"][0] == i else p["frames"][0]
             return f"same leg as #{j}" if a * b > 0 else f"legs faint vs #{j}"
     return ""
+
+
+def ma_feet_detail(grey: np.ndarray, mask: np.ndarray) -> float:
+    """How much fine line there is on the feet: the mean |Laplacian| of the grey frame inside the person (pulled in 4
+    px off the outline) over the lowest 12 % of the figure."""
+    from scipy import ndimage
+    m = ma_person(mask)
+    ys = np.nonzero(m.any(1))[0]
+    if not len(ys):
+        return 0.0
+    y0 = int(ys.max() - 0.12 * (ys.max() - ys.min()))
+    lap = np.abs(ndimage.laplace(ndimage.gaussian_filter(grey.astype(float), 0.7)))
+    inner = ndimage.binary_erosion(m, iterations=4)
+    inner[:y0] = False
+    return float(lap[inner].mean()) if inner.any() else 0.0

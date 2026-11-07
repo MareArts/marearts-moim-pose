@@ -271,6 +271,12 @@ HEAD_FIX = 0.85
 # standing picture: the skirt's front edge and the cut sleeve healed, no hand in eight tries of eight.
 STRAY_FIX = 0.65
 STRAY_BAND = 14
+# Feet the video smeared (one frame of twelve on four people of four, their fine lines 0.45-0.69 of the cycle's) or
+# made sharp into a scaly print on the shoes (1.4): drawn again in a box round the feet from frame 0's look. At 50 %
+# they stayed soft, at 80 % a shoe came back too busy (1.2); at 65 % all four 0.99-1.09 and the print gone (11-07).
+FEET_FIX = 0.65
+FEET_LOW, FEET_HIGH = 0.75, 1.3
+FEET_MIN = 2.0      # feet with less line than this (drawings 3.8-16.7; flat colour 0.2-0.3) are not compared
 
 
 def ma_hand_fix_graph(depth_image: str, ref_image: str, start_image: str, mask_image: str, prompt: str,

@@ -22,9 +22,12 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from .checks import (FACING_SURE, ma_alternate_reason, ma_alternates, ma_clothes_change, ma_cutout, ma_stray_arm,
+from .checks import (FACING_SURE, ma_alternate_reason, ma_alternates, ma_clothes_change, ma_cutout, ma_feet_detail,
+                     ma_stray_arm,
                      ma_facing, ma_frame_ok)
-from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, HAND_FIX, HEAD_FIX, STRAY_BAND, STRAY_FIX, STYLE, VIDEO_H, VIDEO_W, WALK,
+from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, FEET_FIX, FEET_HIGH, FEET_LOW, FEET_MIN,
+                    HAND_FIX,
+                    HEAD_FIX, STRAY_BAND, STRAY_FIX, STYLE, VIDEO_H, VIDEO_W, WALK,
                     MaComfy, ma_arm_words,
                     ma_cutout_graph, ma_hand_fix_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt,
                     ma_sharpen_graph, ma_video_graph)
@@ -195,6 +198,45 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     def cut(i):
         return ma_cutout(Image.open(raw / f"{req.kind}_{i}.png"), Image.open(raw / f"{req.kind}_{i}_mask.png"))
 
+    def feet(i):
+        """Frame i's fine lines on the feet (ma_feet_detail) and its person mask."""
+        g = np.asarray(Image.open(raw / f"{req.kind}_{i}.png").convert("L"))
+        m = np.asarray(Image.open(raw / f"{req.kind}_{i}_mask.png").convert("L").resize(g.shape[::-1])) > 128
+        return ma_feet_detail(g, m), m
+
+    def feet_pass():
+        """Feet smeared or printed scaly against the cycle's own (under FEET_LOW or over FEET_HIGH of the median):
+        drawn again in a box round the feet from frame 0's look, kept only if they come out like the rest and the
+        frame still passes."""
+        detail = [feet(i)[0] for i in range(req.frames)]
+        mid = float(np.median(detail))
+        if mid < FEET_MIN:
+            return
+        for i in drawn:
+            r = detail[i] / mid
+            if FEET_LOW <= r <= FEET_HIGH:
+                continue
+            row = report[i]
+            keep = {p: p.read_bytes() for p in (raw / f"{req.kind}_{i}.png", raw / f"{req.kind}_{i}_mask.png")}
+            sharp = comfy.upload(Image.open(raw / f"{req.kind}_{i}.png").convert("RGB"), f"{req.name}_{req.kind}_sharp_{i}.png")
+            mask = comfy.upload(ma_feet_mask(feet(i)[1]), f"{req.name}_{req.kind}_feet_{i}.png")
+            ok = False
+            for sd in [x for x in ma_seeds(req.seed) if x not in row["tried"]][:tries]:
+                row["tried"].append(sd)
+                ok, said, verdict = draw(i, sd, look or ref_name, start=sharp, mask=mask, denoise=FEET_FIX)
+                after = feet(i)[0] / mid
+                ok = ok and FEET_LOW <= after <= FEET_HIGH
+                log(f"frame {i} seed {sd}: feet {r:.2f} of the cycle's, drawn again {after:.2f}" + (", ok" if ok else ", again"))
+                if ok:
+                    row.update(seed=sd, passed=True, checks=True, measured=said, judge=verdict, feet=round(after, 2))
+                    break
+            if not ok:
+                for p, data in keep.items():
+                    p.write_bytes(data)
+                row["feet"] = round(r, 2)
+                log(f"frame {i}: feet kept as drawn ({r:.2f} of the cycle's); look at them")
+        path.write_text(json.dumps([report[k] for k in sorted(report)], indent=2) + "\n", encoding="utf-8")
+
     def face0(i):
         """How well frame i's head, as drawn now, matches frame 0's (pixels, ma_head_match)."""
         from .checks import ma_person
@@ -316,6 +358,8 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     for i in drawn:
         draw_frame(i)
     missing = [i for i in range(req.frames) if not (raw / f"{req.kind}_{i}.png").exists()]
+    if not missing and judge is not None and use_seed is None:
+        feet_pass()
     if not missing and req.alternate:
         cuts = {i: cut(i) for i in range(req.frames)}
         alt = ma_alternates([cuts[i] for i in range(req.frames)], depths)
@@ -410,6 +454,19 @@ def ma_stray_wipe(frame: Image.Image, mask: np.ndarray, depth: Image.Image,
     band = ndimage.binary_dilation(wipe, iterations=STRAY_BAND)
     return (Image.fromarray(rgb),
             Image.fromarray((band * 255).astype(np.uint8)).convert("RGB").filter(ImageFilter.GaussianBlur(4)))
+
+
+def ma_feet_mask(person: np.ndarray, share: float = 0.15, grow: int = 18) -> Image.Image:
+    """White round the feet (the lowest `share` of the figure, the person grown `grow` px), edges soft."""
+    from PIL import ImageFilter
+    from scipy import ndimage
+    from .checks import ma_person
+    p = ma_person(person)
+    ys = np.nonzero(p.any(1))[0]
+    box = np.zeros_like(p)
+    box[int(ys.max() - share * (ys.max() - ys.min())):] = True
+    box &= ndimage.binary_dilation(p, iterations=grow)
+    return Image.fromarray((box * 255).astype(np.uint8)).convert("RGB").filter(ImageFilter.GaussianBlur(4))
 
 
 def ma_hands_mask(boxes: dict, grow: float = 0.3) -> Image.Image:
