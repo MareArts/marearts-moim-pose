@@ -2,7 +2,8 @@
 
 Drawn one by one, a walk's frames still differ a few percent in height and head size, and the figure wanders
 sideways. One frame is the master; every frame gets
-  1. its height from the walk: the feet on the master's floor, the top of the head on the walk's own smooth wave,
+  1. its height: the feet on the master's floor, the top of the head at the master's height (or on the walk's
+     own small wave, with bob),
      the head the master's size (found by matching the master's head in it, scaled, easing back over the shoulders),
   2. its place from its own mannequin: the drawn legs laid on the mannequin's legs, so the planted foot goes back
      evenly as the gait planned and does not slide.
@@ -282,14 +283,18 @@ def ma_head_once(frames: list[np.ndarray], master: int = 0, feather: float = 0.1
 
 
 def ma_lock(frames: list[np.ndarray], phases: list[float], pts: list[dict], depths: list, master: int = 0,
-            align_legs: bool = True) -> list[np.ndarray]:
-    """RGBA frames (same size) -> RGBA frames with one height, one head size and an even step."""
+            align_legs: bool = True, bob: bool = False) -> list[np.ndarray]:
+    """RGBA frames (same size) -> RGBA frames with one height, one head size and an even step.
+
+    bob: the head rides the walk's small wave (ma_height_wave) instead of one height. A game shows a walk with the feet
+    on one line, and a woman rising 1.1-1.3 % over the standing foot looked to grow as she walked; a game's own walks
+    keep one height, to 0.2 % (11-07)."""
     from scipy import ndimage
     people = [ma_person(f[..., 3] > 128) for f in frames]
     M = ma_marks(people[master])
     torso, height = M["neck"] - M["top"], M["floor"] - M["top"]
     heads = ma_head_sizes(frames, people, master, torso)
-    tall = [ma_height_wave(t) for t in phases]
+    tall = [ma_height_wave(t) if bob else 1.0 for t in phases]
     H, W = frames[0].shape[:2]
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float64)
     out = []

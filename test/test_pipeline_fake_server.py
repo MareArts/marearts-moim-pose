@@ -142,7 +142,7 @@ def test_cycle_end_to_end(tmp_path):
         al = np.asarray(Image.open(tmp_path / "out" / f"walk_{i}.png"))[..., 3] > 128
         ys = np.nonzero(al.any(1))[0]
         tops.append(ys.max() - ys.min())
-    assert max(tops) - min(tops) <= 0.02 * max(tops)       # heights within the walk's own 1.2 % wave
+    assert max(tops) - min(tops) <= 3                       # one height, as a game's walks (the frames drawn 3 % apart)
     meta = json.loads(open(res["files"]["meta"]).read())
     assert meta["frames"] == 12 and meta["frame_height"] == 200 and meta["stride_px_per_frame"] > 0
     assert Image.open(res["files"]["loop"]).n_frames == 12
