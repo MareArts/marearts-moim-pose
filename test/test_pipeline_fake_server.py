@@ -24,6 +24,7 @@ class Fake(BaseHTTPRequestHandler):
     same_foot: set = set()
     stray: set = set()
     turn: set = set()
+    texts: list = []
     calls: list = []
 
     def log_message(self, *a):
@@ -48,6 +49,8 @@ class Fake(BaseHTTPRequestHandler):
             return self._send(json.dumps({"name": name}).encode())
         g = json.loads(data)["prompt"]
         self.count[0] += 1
+        if "text" in g.get("5", {}).get("inputs", {}):         # the words a frame or the video is drawn with
+            self.texts.append(g["5"]["inputs"]["text"])
         pid = f"p{self.count[0]}"
         if g.get("20", {}).get("class_type") == "Wan22FunControlToVideo":   # a video: each mannequin painted
             self.calls.append("video")
@@ -647,3 +650,43 @@ def test_head_drawn_again_that_turns_away_from_frame_0_is_not_kept(tmp_path):
     assert not any("frame 2" in s and "mended (head)" in s for s in lines)
     assert any("frame 2: kept the video's frame" in s for s in lines)   # the video's own head, not a turned one
     assert not row["passed"]
+
+
+def test_person_described_head_to_toe_in_every_frame_and_the_video(tmp_path):
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    Fake.calls.clear()
+    Fake.texts.clear()
+
+    class Judge:
+        """Says what the person's words left out: the socks."""
+        asked = 0
+
+        def describe(self, im):
+            Judge.asked += 1
+            return "chin-length red bob, olive skirt to the knee, white ankle socks with a folded grey cuff, brown shoes"
+
+        def arms_ok(self, im, kind, hands=None):
+            return True, "2; near hand there"
+
+        def feet_ok(self, im):
+            return True, "2"
+
+        def facing(self, im):
+            return "right"
+    try:
+        ref = tmp_path / "person.png"
+        Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
+        out = tmp_path / "out"
+        for kind in ("walk", "carry"):
+            ma_draw_cycle(MaRequest(reference=ref, frames=8, out=out, name="t", kind=kind, height=120,
+                                    look="a young woman, brown shoes"),
+                          MaComfy(f"http://127.0.0.1:{srv.server_port}"), judge=Judge(), log=lambda s: None)
+    finally:
+        srv.shutdown()
+    texts = list(Fake.texts)
+    socks = [t for t in texts if "white ankle socks with a folded grey cuff" in t]
+    assert len(socks) == len(texts) and texts                   # every drawing, the video too
+    assert all("a young woman, brown shoes" in t for t in texts)     # the person's own words kept
+    assert Judge.asked == 1                                      # asked once: the walk and the box drawn alike
+    assert "white ankle socks" in (out / "raw" / "look.txt").read_text()

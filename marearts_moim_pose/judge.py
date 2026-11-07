@@ -55,6 +55,17 @@ ASK_HAND_HERE = ("Look at the middle of this picture. Is a human hand (fingers, 
 ASK_HEELS = ("Look at the shoes in this cartoon drawing. Do they have high heels (the heel raised well above the toes, "
              "like pumps, stilettos or heeled boots), or are they flat (sneakers, flats, loafers, boots with a low heel)? "
              "Answer with one word: heels or flat.")
+# The person from head to toe, for the words every frame and the video are drawn with: the words a person wrote for
+# a girl said "brown shoes" and not her white socks with a folded grey cuff; frame 0, drawn from her picture, had
+# the socks, the video drew bare skin under the cuff and every frame made sharp from it a band round a bare ankle
+# (11-07). What the words leave out, the video does not keep.
+ASK_LOOK = ("Describe this cartoon character from head to toe for an artist who must draw the same person again "
+            "exactly: hair (colour, length, style, clips or bands), face (glasses, earrings, make-up), every layer "
+            "worn on top (each garment, its colour, sleeves, collar, buttons), the skirt or trousers (colour, "
+            "length, cut), the legs (bare, socks with their colour, length and any folded cuff, tights or "
+            "stockings), the shoes (colour, kind, laces, heel, sole colour) and anything carried or worn. One line "
+            "of short phrases separated by commas, from the head down; nothing about the pose, the background or "
+            "the drawing style.")
 HAND_BOX, HAND_PAST = 0.05, 0.015        # half the crop's side, its centre past the wrist; shares of the figure
 # Whether the person in the picture wears a skirt: with the words (ma_skirt_of) it found all 12 skirts of 50 the game
 # people and none of the jeans the words of one called a skirt; alone it boxed wide trousers as a skirt on 3. Its
@@ -174,6 +185,15 @@ class MaJudge:
         feet = im.convert("RGB").crop((max(0, xs.min() - 10), int(bot - 0.2 * (bot - top)), xs.max() + 10, bot + 10))
         ans = self.ask(feet, ASK_HEELS).strip().lower()
         return True if ans.startswith("heel") else False if ans.startswith("flat") else None
+
+    def describe(self, im: Image.Image) -> str:
+        """The person in a standing picture (on a light background) in words, head to toe, one line (ASK_LOOK)."""
+        a = (np.asarray(im.convert("RGB")) < 235).any(-1)
+        ys, xs = np.nonzero(a)
+        fig = im.convert("RGB") if not len(ys) else im.convert("RGB").crop(
+            (max(0, xs.min() - 10), max(0, ys.min() - 10), xs.max() + 10, ys.max() + 10))
+        ans = " ".join(self.ask(fig, ASK_LOOK).split())
+        return ans.strip(" .")
 
     def facing(self, im: Image.Image) -> str:
         """'left', 'right' or '' (no clear answer): which way the person in a standing picture faces."""

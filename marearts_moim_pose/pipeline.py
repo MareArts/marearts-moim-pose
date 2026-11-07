@@ -132,6 +132,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         log("shape from the picture: " + ", ".join(f"{k} {v}" for k, v in shape.items()))
         (raw / "shape.json").write_text(json.dumps(shape) + "\n", encoding="utf-8")
     shape = ma_shape(req)
+    words = ma_look_words(req, ref, judge, raw, log)
     ref_im = ref                                        # the person, for the head likeness
     ref_name = comfy.upload(ref, f"{req.name}_ref.png")
     carry = req.kind == "carry"
@@ -139,7 +140,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     pts = [ma_arms_on_body(ma_walk_points(t, req.gait, carry=carry), shape["torso"]) for t in phases]
     depths = [ma_depth(p, box=carry, **shape) for p in pts]
     widest = max(abs(p[LSHO + 1][0] - p[LSHO][0]) for p in pts)
-    prompts = [ma_prompt(req.look, req.kind, change=req.change, arms="" if carry else ma_arm_words(p, widest))
+    prompts = [ma_prompt(words, req.kind, change=req.change, arms="" if carry else ma_arm_words(p, widest))
                for p in pts]
     # where a hand must be drawn: the near one always, the far one when it swings out in front of the body
     # and only where the mannequin shows it: half behind the body or a skirt the video rightly drew none, and every
@@ -298,13 +299,13 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         if report[0]["passed"] and got:
             head_min[0] = max(HEAD_FLOOR, min(HEAD_MIN, float(got[-1]) - HEAD_SLACK))
         if report[0]["passed"]:
-            starts = ma_video_starts(req, comfy, depths, raw, log)
+            starts = ma_video_starts(req, comfy, depths, raw, log, words)
             # the cycle again from the video's own frame 0 made sharp: from frame 0 as drawn alone the video drew a
             # round pouch on an older man's hip in every frame (his drawing had none), and each frame made sharp
             # read it as a pocket, a flap or the hem; from its own frame 0 it kept his jacket as it was (11-04)
             draw_frame(0)
             if report[0]["passed"]:
-                starts = ma_video_starts(req, comfy, depths, raw, log)
+                starts = ma_video_starts(req, comfy, depths, raw, log, words)
             # the look of the whole cycle is frame 0's from here on: made sharp, or a hand drawn again, a frame is
             # drawn from frame 0 and not from the standing picture, or each one reads the hem, pockets and cuffs its
             # own way. An older man's walk changed at the hem by 24 between frames drawn from his picture, 22 from
@@ -427,7 +428,7 @@ def ma_video_prompt(look: str, kind: str) -> str:
             f"whole figure, the same person in every frame, plain white background, {STYLE}")
 
 
-def ma_video_starts(req: MaRequest, comfy: MaComfy, depths: list, raw: Path, log=print) -> dict:
+def ma_video_starts(req: MaRequest, comfy: MaComfy, depths: list, raw: Path, log=print, look: str | None = None) -> dict:
     """The cycle drawn at once by the video model from frame 0 (drawn and checked), two cycles over the mannequins
     (the first settles in), the second cycle's frames uploaded at full size as each frame's start picture."""
     n = req.frames
@@ -440,7 +441,7 @@ def ma_video_starts(req: MaRequest, comfy: MaComfy, depths: list, raw: Path, log
                          f"{req.name}_{req.kind}_vfirst.png")
     t0 = time.time()
     comfy.free()
-    graph = ma_video_graph([names[j % n] for j in range(length)], first, ma_video_prompt(req.look, req.kind),
+    graph = ma_video_graph([names[j % n] for j in range(length)], first, ma_video_prompt(req.look if look is None else look, req.kind),
                            seed=req.seed, model=req.video_model)
     frames = comfy.run_all(graph, raw / "video", stem=req.kind)
     comfy.free()                                         # the frame model again next
@@ -501,6 +502,22 @@ def ma_measure_shape(req: MaRequest, ref: Image.Image, judge=None) -> dict:
         heels = bool(re.search(r"\b(heels?|heeled|pumps|stilettos?)\b", req.look.lower()))
     shape.update(skirt=round(skirt, 3), flare=flare, heels=bool(heels))
     return shape
+
+
+def ma_look_words(req: MaRequest, ref: Image.Image, judge=None, raw: Path | None = None, log=print) -> str:
+    """The words every frame and the video are drawn with: the request's look and the judge's head-to-toe account of
+    the picture (ASK_LOOK), asked once and kept in raw/look.txt so the walk and the box are drawn with the same words.
+    No judge, or one that cannot describe: the request's look alone."""
+    path = raw / "look.txt" if raw is not None else None
+    if path is not None and path.exists():
+        seen = path.read_text(encoding="utf-8").strip()
+    else:
+        describe = getattr(judge, "describe", None)
+        seen = describe(ref) if describe else ""
+        if seen and path is not None:
+            path.write_text(seen + "\n", encoding="utf-8")
+            log(f"the person from head to toe: {seen}")
+    return "; ".join(filter(None, [req.look, f"from head to toe: {seen}" if seen else ""]))
 
 
 def ma_shape(req: MaRequest) -> dict:
