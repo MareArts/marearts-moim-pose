@@ -161,6 +161,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     report = {r["frame"]: r for r in (json.loads(path.read_text(encoding="utf-8")) if path.exists() else [])}
     dnames = {}
     head_min = [HEAD_MIN]
+    seen = {}                            # frame: [(head likeness, seed)] of the seeds that passed every other check
 
     def draw(i, sd, ref=None, start=None, mask=None, denoise=HAND_FIX):
         """Frame i at seed sd, drawn (or, given a start picture, made sharp from it; given a mask too, drawn again
@@ -190,6 +191,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
                 likeness = getattr(judge, "head_likeness", None)      # a judge of one's own may not have it
                 like = likeness(Image.open(frame), ref_im) if likeness else None
                 if like is not None:
+                    seen.setdefault(i, []).append((like, sd))
                     ok = like >= head_min[0]
                     verdict += f"; head {like:.2f}" + ("" if ok else " (another person)")
         log(f"frame {i} seed {sd}: {said}" + (f", judge {verdict!r}" if verdict else "") + (" ok" if ok else " again"))
@@ -344,9 +346,20 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         # how like the picture this person's own drawn frame 0 came out sets the bar for the rest: a man with a shaved
         # head, the same man in every frame by eye, scored 0.85-0.91 against his picture (a bald crown says little)
         # and failed every seed; a face turned into another person scores 0.51-0.65, hair over the face 0.83-0.87
-        got = re.findall(r"head ([0-9.]+)", report[0].get("judge") or "")
-        if report[0]["passed"] and got:
-            head_min[0] = max(HEAD_FLOOR, min(HEAD_MIN, float(got[-1]) - HEAD_SLACK))
+        # The bar is the middle of every seed of frame 0 that passed all else, not the one seed that got over it: a
+        # girl drawn as herself in every frame by eye scored 0.83-0.94 against her picture, frame 0 passed on its
+        # fourth seed at 0.94, the bar stayed 0.91 and 42 of 70 tries of her walk went to heads at 0.88-0.91; with
+        # the box no seed got over 0.88 and her carry was drawn frame by frame without the video (11-08). Under the
+        # bar every time, frame 0 is drawn again at its best seed when that one is over the person's own bar.
+        got = [s for s, _ in seen.get(0, [])]
+        if got:
+            head_min[0] = max(HEAD_FLOOR, min(HEAD_MIN, float(np.median(got)) - HEAD_SLACK))
+            best, bsd = max(seen[0])
+            if not report[0]["passed"] and best >= head_min[0]:
+                ok, said, verdict = draw(0, bsd)
+                if ok:
+                    report[0].update(seed=bsd, passed=True, checks=True, measured=said, judge=verdict)
+                    log(f"frame 0 seed {bsd}: its best head {best:.2f}, over this person's bar {head_min[0]:.2f}, ok")
         if report[0]["passed"]:
             starts = ma_video_starts(req, comfy, depths, raw, log, words)
             # the cycle again from the video's own frame 0 made sharp: from frame 0 as drawn alone the video drew a

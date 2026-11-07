@@ -555,6 +555,52 @@ def test_head_bar_follows_the_persons_own_frame_0(tmp_path):
     assert not any("another person" in s for s in lines)
 
 
+def _head_scores_run(tmp_path, scores, then):
+    """A cycle drawn with the head likeness given in turn by `scores`, then `then` every time: (report, log)."""
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    class Judge:
+        def __init__(self):
+            self.n = 0
+
+        def arms_ok(self, im, kind, hands=None):
+            return True, "hands 2; near hand there"
+
+        def feet_ok(self, im):
+            return True, "2"
+
+        def head_likeness(self, im, ref):
+            self.n += 1
+            return scores[self.n - 1] if self.n <= len(scores) else then
+
+        def facing(self, im):
+            return "right"
+    try:
+        ref = tmp_path / "person.png"
+        Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
+        lines = []
+        res = ma_draw_cycle(MaRequest(reference=ref, far_shade=0.55, frames=8, out=tmp_path / "out", name="t", height=120),
+                            MaComfy(f"http://127.0.0.1:{srv.server_port}"), judge=Judge(), log=lines.append)
+    finally:
+        srv.shutdown()
+    return res["report"], lines
+
+
+def test_head_bar_from_the_middle_of_frame_0s_seeds_not_its_lucky_one(tmp_path):
+    # frame 0 over the bar on its fourth seed only (0.94); the person's frames after it 0.89, as her seeds were
+    report, lines = _head_scores_run(tmp_path, [0.89, 0.83, 0.91, 0.94], 0.89)
+    assert all(r["passed"] and r["engine"] == "video" for r in report), lines
+    assert not any("another person" in s for s in lines[lines.index(next(s for s in lines if "seed" in s and "0.94" in s)):]), lines
+
+
+def test_frame_0_under_the_bar_every_seed_drawn_at_its_best_and_the_video_follows(tmp_path):
+    # no seed of frame 0 gets over 0.915 (a girl with a box, 0.82-0.88, 11-08): the best one is frame 0
+    report, lines = _head_scores_run(tmp_path, [0.82, 0.86, 0.88, 0.82, 0.82, 0.83], 0.88)
+    assert any("its best head 0.88" in s for s in lines), lines
+    assert all(r["passed"] and r["engine"] == "video" for r in report), lines
+
+
 def test_head_box_holds_the_mannequins_head_and_hair():
     from marearts_moim_pose.gait import FIG, NECK_I, NOSE, ma_walk_points
     from marearts_moim_pose.mannequin import ma_depth
