@@ -213,7 +213,7 @@ def ma_head_sizes(frames: list[np.ndarray], people: list[np.ndarray], master: in
     return out
 
 
-def ma_head_once(frames: list[np.ndarray], master: int = 0, feather: float = 0.35) -> list[np.ndarray]:
+def ma_head_once(frames: list[np.ndarray], master: int = 0, feather: float = 0.12) -> list[np.ndarray]:
     """The head drawn once: the master's head, from the top of the hair to the chin, put on every frame where that
     frame's head matches it best (scale 0.94-1.06 and place), fading into the frame below the chin over `feather`
     of the head's height. Each frame of a video made sharp drew the face again: a girl's glasses rode higher or
@@ -226,21 +226,22 @@ def ma_head_once(frames: list[np.ndarray], master: int = 0, feather: float = 0.3
         a = f[..., 3:4] / 255.0
         return (f[..., :3] * a + 255 * (1 - a)).mean(-1) / 255.0
 
-    p0 = ma_person(frames[master][..., 3] > 128)
-    M = ma_marks(p0)
-    rows = M["neck"] - M["top"]
+    people = [ma_person(f[..., 3] > 128) for f in frames]
+    marks = [ma_marks(p) for p in people]
+    # the head's height from all the frames: frame 0's neck read low on a girl's collar over a carried box, and its
+    # head band took the top of the box with it into every frame (11-07)
+    rows = int(np.median([m["neck"] - m["top"] for m in marks]))
+    p0, M = people[master], marks[master]
     ext = int(rows * (1 + feather))
-    xs = np.nonzero(p0[M["top"]:M["top"] + ext].any(0))[0]
+    xs = np.nonzero(p0[M["top"]:M["top"] + rows].any(0))[0]
     x0, y0 = max(0, xs.min() - 6), max(0, M["top"] - 6)
     patch = frames[master][y0:M["top"] + ext, x0:xs.max() + 7].astype(np.float64)
-    tpl = grey(frames[master])[M["top"]:M["neck"], xs.min():xs.max() + 1]
+    tpl = grey(frames[master])[M["top"]:M["top"] + rows, xs.min():xs.max() + 1]
     out = []
-    for i, f in enumerate(frames):
+    for i, (f, p, m) in enumerate(zip(frames, people, marks)):
         if i == master:
             out.append(f)
             continue
-        p = ma_person(f[..., 3] > 128)
-        m = ma_marks(p)
         cols = np.nonzero(p[m["top"]:m["top"] + rows].any(0))[0]
         wy, wx = max(0, m["top"] - 30), max(0, cols.min() - 50)
         win = grey(f)[wy:m["top"] + rows + 40, wx:cols.max() + 51]
@@ -258,14 +259,23 @@ def ma_head_once(frames: list[np.ndarray], master: int = 0, feather: float = 0.3
         oy, ox = int(round(ty - (M["top"] - y0) * s)), int(round(tx - (xs.min() - x0) * s))
         h, w = P.shape[:2]
         k = np.ones(h)
-        chin = int((M["neck"] - y0) * s)
+        chin = int((M["top"] + rows - y0) * s)
         k[chin:] = np.linspace(1, 0, h - chin)
         o = f.astype(np.float64)
         ya, yb, xa, xb = max(0, oy), min(o.shape[0], oy + h), max(0, ox), min(o.shape[1], ox + w)
         Pc, kc = P[ya - oy:yb - oy, xa - ox:xb - ox], k[ya - oy:yb - oy, None, None]
         a1, a2 = Pc[..., 3:4] / 255, o[ya:yb, xa:xb, 3:4] / 255
-        A = kc * a1 + (1 - kc) * a2                       # the band replaces the frame's head, hair drawn wider too
-        o[ya:yb, xa:xb, :3] = (kc * a1 * Pc[..., :3] + (1 - kc) * a2 * o[ya:yb, xa:xb, :3]) / np.maximum(A, 1e-6)
+        y = np.arange(ya, yb)[:, None, None]
+        own = y < m["top"] + rows                       # this frame's own head: replaced, hair drawn wider too
+        head = y - oy < chin                            # the rest of frame 0's head: laid over what is there
+        # under the chin the frame keeps its own outline and only its colours fade from the head's (frame 0's
+        # shoulder edge laid where this frame had none left a grey line down a girl's back)
+        kc = np.where(head, kc, kc * (a1 > 0.5) * (a2 > 0.5))
+        A = np.where(own, a1, np.where(head, a1 + a2 * (1 - a1), a2))
+        top_w = np.where(own, 1.0, np.where(head, 1.0, kc))
+        low_w = np.where(own, 0.0, np.where(head, 1 - a1, 1 - kc))
+        C = (top_w * a1 * Pc[..., :3] + low_w * a2 * o[ya:yb, xa:xb, :3]) / np.maximum(top_w * a1 + low_w * a2, 1e-6)
+        o[ya:yb, xa:xb, :3] = np.where(A > 0, C, o[ya:yb, xa:xb, :3])
         o[ya:yb, xa:xb, 3:4] = A * 255
         out.append(o.clip(0, 255).round().astype(np.uint8))
     return out

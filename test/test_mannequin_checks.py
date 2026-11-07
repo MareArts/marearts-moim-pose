@@ -576,3 +576,10 @@ def test_head_drawn_once_and_put_on_every_frame():
         assert np.abs(a - b).mean() < 6                           # frame 0's face, where this frame's head is
         assert (f[400:550, 160:240] == (90, 90, 160, 255)).all()      # the body as the frame drew it
     assert np.abs(g(frames[0])[60:130, 165:235] - g(frames[1])[66:136, 165:235]).mean() > 20   # they differed
+    boxed = [f.copy() for f in frames]
+    for f, dy in zip(boxed, (0, 6, -4)):
+        f[152 + dy:200 + dy, 240:330] = (200, 160, 100, 255)        # a carried box just under the chin
+    out = ma_head_once(boxed)
+    for f, dy in zip(out[1:], (6, -4)):
+        assert (f[158 + dy:198 + dy, 245:330] == (200, 160, 100, 255)).all()   # the box as this frame drew it
+        assert (f[150 + dy:170 + dy, 330:400, 3] == 0).all()           # nothing of frame 0's laid beside it
