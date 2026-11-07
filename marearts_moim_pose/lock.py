@@ -213,6 +213,64 @@ def ma_head_sizes(frames: list[np.ndarray], people: list[np.ndarray], master: in
     return out
 
 
+def ma_head_once(frames: list[np.ndarray], master: int = 0, feather: float = 0.35) -> list[np.ndarray]:
+    """The head drawn once: the master's head, from the top of the hair to the chin, put on every frame where that
+    frame's head matches it best (scale 0.94-1.06 and place), fading into the frame below the chin over `feather`
+    of the head's height. Each frame of a video made sharp drew the face again: a girl's glasses rode higher or
+    lower, her smile came and went and her parting moved from frame to frame, a face that changed as she walked
+    (11-07); hand-drawn walks draw the head once and move it."""
+    from skimage.feature import match_template
+    from skimage.transform import rescale
+
+    def grey(f):
+        a = f[..., 3:4] / 255.0
+        return (f[..., :3] * a + 255 * (1 - a)).mean(-1) / 255.0
+
+    p0 = ma_person(frames[master][..., 3] > 128)
+    M = ma_marks(p0)
+    rows = M["neck"] - M["top"]
+    ext = int(rows * (1 + feather))
+    xs = np.nonzero(p0[M["top"]:M["top"] + ext].any(0))[0]
+    x0, y0 = max(0, xs.min() - 6), max(0, M["top"] - 6)
+    patch = frames[master][y0:M["top"] + ext, x0:xs.max() + 7].astype(np.float64)
+    tpl = grey(frames[master])[M["top"]:M["neck"], xs.min():xs.max() + 1]
+    out = []
+    for i, f in enumerate(frames):
+        if i == master:
+            out.append(f)
+            continue
+        p = ma_person(f[..., 3] > 128)
+        m = ma_marks(p)
+        cols = np.nonzero(p[m["top"]:m["top"] + rows].any(0))[0]
+        wy, wx = max(0, m["top"] - 30), max(0, cols.min() - 50)
+        win = grey(f)[wy:m["top"] + rows + 40, wx:cols.max() + 51]
+        best = (-1.0, 1.0, m["top"], cols.min())
+        for s in np.arange(0.94, 1.065, 0.01):
+            t = rescale(tpl, s, anti_aliasing=True)
+            if win.shape[0] < t.shape[0] or win.shape[1] < t.shape[1]:
+                continue
+            r = match_template(win, t)
+            j = np.unravel_index(r.argmax(), r.shape)
+            if r[j] > best[0]:
+                best = (float(r[j]), float(s), wy + j[0], wx + j[1])
+        _, s, ty, tx = best
+        P = np.stack([rescale(patch[..., c], s, anti_aliasing=True) for c in range(4)], -1)
+        oy, ox = int(round(ty - (M["top"] - y0) * s)), int(round(tx - (xs.min() - x0) * s))
+        h, w = P.shape[:2]
+        k = np.ones(h)
+        chin = int((M["neck"] - y0) * s)
+        k[chin:] = np.linspace(1, 0, h - chin)
+        o = f.astype(np.float64)
+        ya, yb, xa, xb = max(0, oy), min(o.shape[0], oy + h), max(0, ox), min(o.shape[1], ox + w)
+        Pc, kc = P[ya - oy:yb - oy, xa - ox:xb - ox], k[ya - oy:yb - oy, None, None]
+        a1, a2 = Pc[..., 3:4] / 255, o[ya:yb, xa:xb, 3:4] / 255
+        A = kc * a1 + (1 - kc) * a2                       # the band replaces the frame's head, hair drawn wider too
+        o[ya:yb, xa:xb, :3] = (kc * a1 * Pc[..., :3] + (1 - kc) * a2 * o[ya:yb, xa:xb, :3]) / np.maximum(A, 1e-6)
+        o[ya:yb, xa:xb, 3:4] = A * 255
+        out.append(o.clip(0, 255).round().astype(np.uint8))
+    return out
+
+
 def ma_lock(frames: list[np.ndarray], phases: list[float], pts: list[dict], depths: list, master: int = 0,
             align_legs: bool = True) -> list[np.ndarray]:
     """RGBA frames (same size) -> RGBA frames with one height, one head size and an even step."""

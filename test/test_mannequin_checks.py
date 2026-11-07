@@ -545,3 +545,34 @@ def test_stray_arm_wiped_and_only_a_band_round_it_drawn_again():
     edge = int(np.nonzero((w[y - 50] != 255).any(-1))[0].max())  # where the body is cut
     assert b[y - 50, x + 50] and b[y - 50, edge - 3:edge + 1].all()   # the band takes in the wiped part and the cut
     assert not b[y - 50, x - 60] and b.mean() < 0.02             # and nothing much else
+
+
+def test_head_drawn_once_and_put_on_every_frame():
+    from scipy import ndimage
+    from marearts_moim_pose.lock import ma_head_once
+    rng = np.random.default_rng(5)
+
+    def face(seed):
+        t = ndimage.gaussian_filter(np.random.default_rng(seed).random((110, 110)), 3)
+        return ((t - t.min()) / np.ptp(t) * 200).astype(np.uint8)
+
+    def frame(tex, dy):
+        f = np.zeros((600, 400, 4), np.uint8)
+        f[..., :3] = 255
+        yy, xx = np.mgrid[0:600, 0:400]
+        disc = (yy - (95 + dy)) ** 2 + (xx - 200) ** 2 < 55 ** 2
+        sub = np.zeros((600, 400), np.uint8)
+        sub[40 + dy:150 + dy, 145:255] = tex
+        f[disc, :3] = sub[disc, None]
+        f[disc, 3] = 255
+        f[150 + dy:560, 150:250] = (90, 90, 160, 255)
+        f[145 + dy:560, 180:250, 3] = 255
+        return f
+    frames = [frame(face(1), 0), frame(face(2), 6), frame(face(3), -4)]   # each frame drew another face, bobbing
+    out = ma_head_once(frames)
+    g = lambda f: f[..., :3].astype(float).mean(-1)
+    for f, dy in zip(out[1:], (6, -4)):
+        a, b = g(out[0])[60:130, 165:235], g(f)[60 + dy:130 + dy, 165:235]
+        assert np.abs(a - b).mean() < 6                           # frame 0's face, where this frame's head is
+        assert (f[400:550, 160:240] == (90, 90, 160, 255)).all()      # the body as the frame drew it
+    assert np.abs(g(frames[0])[60:130, 165:235] - g(frames[1])[66:136, 165:235]).mean() > 20   # they differed

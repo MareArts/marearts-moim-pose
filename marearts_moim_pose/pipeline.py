@@ -30,7 +30,7 @@ from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, HAND_
                     ma_sharpen_graph, ma_video_graph)
 from .gait import LSHO, RSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
 from .judge import HEAD_FLOOR, HEAD_MIN, HEAD_SLACK, ma_hand_box, ma_hand_boxes
-from .lock import ma_colour_match, ma_head_match, ma_leg_tones, ma_lock, ma_marks
+from .lock import ma_colour_match, ma_head_match, ma_head_once, ma_leg_tones, ma_lock, ma_marks
 from .mannequin import ma_arms_on_body, ma_box_rect, ma_depth, ma_fit, ma_skirt_at, ma_skirt_flare, ma_skirt_hem, ma_skirt_hem_of, ma_skirt_of
 from .sheet import ma_loop_gif, ma_meta, ma_review_sheet, ma_sheet, ma_sprites, ma_strip_gif
 
@@ -100,6 +100,7 @@ class MaRequest:
     fps: int = 12                      # one cycle a second at 12 frames
     far_shade: float = 0.9               # the far leg's brightness against the near one's (1: legs as drawn)
     colour: float = 0.5                  # how far each frame's colours go to the picture's (0: as drawn)
+    head_once: bool = True               # frame 0's head on every frame (ma_head_once); False: each frame's own
     # draw again a frame on the same foot as the one half a cycle away. Off: the model draws the leg behind darker
     # whichever it is, so new seeds rarely help (0 of 18 on Rin's walk); the leg tones fix what shows.
     alternate: bool = False
@@ -545,6 +546,8 @@ def ma_finish(req: MaRequest, phases=None, pts=None, depths=None) -> dict:
     cut = [ma_cutout(Image.open(raw / f"{req.kind}_{i}.png"), Image.open(raw / f"{req.kind}_{i}_mask.png"))
            for i in range(req.frames)]
     locked = ma_lock(cut, phases, pts, depths)
+    if req.head_once:
+        locked = ma_head_once(locked)
     if req.far_shade < 1:
         # the legs told apart on the mannequin without the skirt, from its hem down
         skirt = shape["skirt"]
