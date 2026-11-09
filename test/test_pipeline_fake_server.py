@@ -794,3 +794,21 @@ def test_smeared_feet_drawn_again_from_frame_0(tmp_path):
     row = next(r for r in res["report"] if r["frame"] == 3)
     assert 0.75 <= row["feet"] <= 1.3, row                   # the feet as the rest (its head, under the bar, is
     assert not row["checks"]                                 # still the video's: frame 0's goes on it at the end)
+
+
+def test_feet_clean_reads_yes_as_a_ghost_shoe():
+    from marearts_moim_pose.judge import ASK_FEET_CLEAN, MaJudge
+
+    class Said(MaJudge):
+        def __init__(self, ans):
+            self.ans, self.asked = ans, []
+
+        def ask(self, im, text):
+            self.asked.append((im.size, text))
+            return self.ans
+
+    im = Image.new("RGB", (400, 1000), "white")
+    j = Said("Yes. A ghost copy of the left shoe.")
+    ok, said = j.feet_clean(im)
+    assert not ok and "ghost" in said and j.asked == [((400, 380), ASK_FEET_CLEAN)]     # the legs and feet only
+    assert Said("No").feet_clean(im)[0] and Said(" no, the shoes are clean").feet_clean(im)[0]

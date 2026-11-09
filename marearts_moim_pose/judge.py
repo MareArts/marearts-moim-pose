@@ -37,6 +37,12 @@ TORSO = (0.15, 0.25, 0.85, 0.62)          # shoulders to thighs: hands are small
 # each shoe of the feet alone, it found all three on 48 frames of two characters and failed no good one (11-03).
 ASK_FEET = ("Look at this cartoon drawing of a person's legs closely. List every shoe you can see, from left to right, "
             "one short phrase each. Then on the last line write the number of shoes.")
+# On 204 walk frames of 17 game characters it said yes on 29: about 14 ghost or smeared shoes, the rest mostly feet
+# crossing at mid-stance (11-09). A yes only sends the feet to be drawn again, kept if they come out clean.
+ASK_FEET_CLEAN = ("Look closely at the shoes and feet in this cartoon drawing of a walking person. Is any shoe drawn "
+                  "twice (a ghost or second copy of the shoe), smeared or streaked, bent at an impossible angle at the "
+                  "ankle, or with a stray blob or white streak next to it? Answer yes or no on the first line, then "
+                  "name the problem in a few words.")
 FEET = (0.0, 0.62, 1.0, 1.0)
 # The reference picture's way: on 16 pictures (8 and the same mirrored) it answered all 16 right, on the head alone.
 ASK_FACING = ("This is a side view of one person. Which way is the person's face pointing: to the left side of the "
@@ -159,6 +165,14 @@ class MaJudge:
         ans = self.ask(im.convert("RGB").crop((int(w * x0), int(h * y0), int(w * x1), int(h * y1))), ASK_FEET)
         m = re.findall(r"\d+", ans)
         return bool(m) and int(m[-1]) <= 2, ans
+
+    def feet_clean(self, im: Image.Image) -> tuple[bool, str]:
+        """(no shoe drawn twice, smeared or with a stray piece, the model's answer) on the legs and feet. The video
+        draws a back foot lifting off as a ghost shoe or a white streak, and two shoes are still counted (11-09)."""
+        w, h = im.size
+        x0, y0, x1, y1 = FEET
+        ans = self.ask(im.convert("RGB").crop((int(w * x0), int(h * y0), int(w * x1), int(h * y1))), ASK_FEET_CLEAN)
+        return not ans.strip().lower().startswith("yes"), ans
 
     def skirt_hem(self, im: Image.Image) -> float | None:
         """Where the skirt in a standing picture ends, as a share of the figure's height from the top of the head

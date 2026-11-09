@@ -214,9 +214,14 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         mid = float(np.median(detail))
         if mid < FEET_MIN:
             return
+        def clean(i):          # a judge of its own without the question passes (as before 11-09)
+            ask = getattr(judge, "feet_clean", None)
+            return ask is None or ask(Image.open(raw / f"{req.kind}_{i}.png"))[0]
+
         for i in drawn:
             r = detail[i] / mid
-            if FEET_LOW <= r <= FEET_HIGH:
+            # a ghost shoe or a streak behind a lifting foot keeps the fine line of the rest (11-09): asked too
+            if FEET_LOW <= r <= FEET_HIGH and clean(i):
                 continue
             row = report[i]
             keep = {p: p.read_bytes() for p in (raw / f"{req.kind}_{i}.png", raw / f"{req.kind}_{i}_mask.png")}
@@ -231,7 +236,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
                 # not touch it (the video's own head, 0.90 against a bar of 0.91, sent a girl's mended feet back
                 # four times, 11-07) and ma_head_once puts frame 0's head on the frame in the end
                 head_only = "(another person)" in verdict
-                ok = (ok or head_only) and FEET_LOW <= after <= FEET_HIGH
+                ok = (ok or head_only) and FEET_LOW <= after <= FEET_HIGH and clean(i)
                 log(f"frame {i} seed {sd}: feet {r:.2f} of the cycle's, drawn again {after:.2f}" + (", ok" if ok else ", again"))
                 if ok:
                     row.update(seed=sd, passed=not head_only, checks=not head_only, measured=said, judge=verdict,
