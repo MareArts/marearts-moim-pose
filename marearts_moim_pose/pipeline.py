@@ -33,7 +33,7 @@ from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, FEET_
                     ma_sharpen_graph, ma_video_graph)
 from .gait import LSHO, RSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
 from .judge import HEAD_FLOOR, HEAD_MIN, HEAD_SLACK, ma_hand_box, ma_hand_boxes
-from .lock import ma_colour_match, ma_head_match, ma_head_once, ma_leg_tones, ma_lock, ma_marks
+from .lock import ma_colour_match, ma_head_match, ma_head_once, ma_leg_masks, ma_leg_tones, ma_lock, ma_marks
 from .mannequin import ma_arms_on_body, ma_box_rect, ma_depth, ma_fit, ma_skirt_at, ma_skirt_flare, ma_skirt_hem, ma_skirt_hem_of, ma_skirt_of
 from .sheet import ma_loop_gif, ma_meta, ma_review_sheet, ma_sheet, ma_sprites, ma_strip_gif
 
@@ -624,12 +624,12 @@ def ma_finish(req: MaRequest, phases=None, pts=None, depths=None) -> dict:
     locked = ma_lock(cut, phases, pts, depths, bob=req.bob)
     if req.head_once:
         locked = ma_head_once(locked)
+    # the legs told apart on the mannequin without the skirt, from its hem down
+    skirt = shape["skirt"]
+    bare = [ma_depth(p, box=carry, **{**shape, "skirt": 0}) for p in pts] if skirt else depths
+    hems = [ma_skirt_hem(p, skirt, shape["flare"])[2] for p in pts] if skirt else None
     if req.far_shade < 1:
-        # the legs told apart on the mannequin without the skirt, from its hem down
-        skirt = shape["skirt"]
-        bare = [ma_depth(p, box=carry, **{**shape, "skirt": 0}) for p in pts] if skirt else depths
-        locked = ma_leg_tones(locked, bare, req.far_shade, pts,
-                              [ma_skirt_hem(p, skirt, shape["flare"])[2] for p in pts] if skirt else None)
+        locked = ma_leg_tones(locked, bare, req.far_shade, pts, hems)
     ref_path = raw / "reference.png"
     if req.colour > 0 and ref_path.exists():
         from scipy import ndimage
@@ -649,8 +649,10 @@ def ma_finish(req: MaRequest, phases=None, pts=None, depths=None) -> dict:
         Image.fromarray(f).save(out / f"{req.kind}_{i}.png")
     path = out / f"{req.kind}_report.json"
     report = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-    # the two steps, checked on the frames as they are written (after the leg tones), so the sheet says what shows
-    alt = ma_alternates(locked, depths)
+    # the two steps, checked on the frames as they are written (after the leg tones), so the sheet says what shows:
+    # the light on each leg, on the same leg masks the tones used
+    alt = ma_alternates(locked, depths, [ma_leg_masks(f, d, p, e) for f, d, p, e
+                                         in zip(locked, bare, pts, hems or [None] * len(locked))])
     # the clothes from one frame to the next, on the frames as drawn, written down for a look. It does not fail a
     # frame: the drawn figure never lies exactly on its mannequin, and a girl's wide sleeves swinging over her coat
     # read as a jump in a video the eye saw as one look (11-04)

@@ -51,6 +51,30 @@ def test_faint_legs_fail():
     assert a["fail"] == [5] and ma_alternate_reason(a, 5) == "legs faint vs #1"
 
 
+def test_dark_shoe_behind_is_not_the_back_leg():
+    from marearts_moim_pose.lock import ma_leg_masks
+    frames, depths = _cycle()
+    f = frames[4].copy()                                # the near leg behind; its foot lifted in a dark shoe
+    m = f[..., 3] > 128
+    ys = np.nonzero(m.any(1))[0]
+    top, h = ys.min(), ys.max() - ys.min()
+    band = np.zeros_like(m)
+    band[top + int(0.80 * h):top + int(0.94 * h)] = True    # the shoe and ankle, a sixth of the near leg
+    xs = np.nonzero((m & band).any(0))[0]
+    shoe = m & band
+    shoe[:, int(xs.min() + (xs.max() - xs.min()) / 3) + 1:] = False
+    f[shoe, :3] = 20
+    frames[4] = f
+    assert ma_leg_lead(f)[0] > 0                        # the thirds read the shoe as a dark back leg
+    masks = [ma_leg_masks(g, d) for g, d in zip(frames, depths)]
+    assert ma_alternates(frames, depths)["fail"] == [4]
+    a = ma_alternates(frames, depths, masks)
+    assert a["ok"] and a["lead"][4] < -10, a
+    frames[4] = _paint(depths[4], swap=True)            # a frame truly on the same foot still fails
+    masks[4] = ma_leg_masks(frames[4], depths[4])
+    assert ma_alternates(frames, depths, masks)["fail"] == [4]
+
+
 def test_mannequin_says_which_leg_leads():
     p0, p5 = ma_walk_points(0.0), ma_walk_points(0.5)
     assert ma_near_ahead(ma_depth(p0)) > 0.2 and ma_near_ahead(ma_depth(p5)) < -0.2

@@ -290,7 +290,18 @@ def ma_near_ahead(depth: Image.Image) -> float:
     return float((near.mean() - far.mean()) / max(1, bot - top))
 
 
-def ma_alternates(frames: list[np.ndarray], depths: list | None = None) -> dict:
+def ma_leg_contrast(frame: np.ndarray, near: np.ndarray, far: np.ndarray) -> float:
+    """How much lighter the near leg is than the far one (grey levels) in an RGBA frame, on the legs' soft masks
+    (lock.ma_leg_masks); 0 when either leg is not there."""
+    a = frame[..., 3] > 128
+    grey = frame[..., :3].astype(np.float64).mean(-1)
+    n, f = (near > 0.8) & a, (far > 0.8) & a
+    if n.sum() < 20 or f.sum() < 20:
+        return 0.0
+    return float(grey[n].mean() - grey[f].mean())
+
+
+def ma_alternates(frames: list[np.ndarray], depths: list | None = None, masks: list | None = None) -> dict:
     """Whether the two steps of a cycle lead with different legs ("walking on the same foot" when not).
 
     Frame i and frame i + half are half a cycle apart: one has the near leg in front, the other the far one, so
@@ -299,11 +310,18 @@ def ma_alternates(frames: list[np.ndarray], depths: list | None = None) -> dict:
 
     depths: the frames' mannequins. They say which leg should be in front, so a failed pair names the frame drawn
     the wrong way (or too faint); without them both frames of a failed pair fail.
+    masks: the near and the far leg of each frame ((near, far) soft masks, lock.ma_leg_masks), with depths. The lead
+    is then the near leg's light over the far one's, signed by which of them the mannequin has in front. The front
+    and back thirds of ma_leg_lead read the shoe of a foot lifted behind as the back leg: a girl's brown shoe made
+    her lit near leg the dark one, and 108 of 167 failed frames of 17 game characters were frames 5-8 with the near
+    leg behind, drawn right (11-09).
     Returns {"ok", "fail": frame numbers, "pairs": [{frames, lead, measured, ok, fail}], "lead": per frame}.
     """
     half = len(frames) // 2
     got = [ma_leg_lead(f) for f in frames]
     ahead = [ma_near_ahead(d) for d in depths] if depths is not None else None
+    if masks is not None and ahead is not None:
+        got = [(ma_leg_contrast(f, *m) * (1 if x >= 0 else -1), s) for f, m, x, (_, s) in zip(frames, masks, ahead, got)]
     pairs, fail = [], set()
     for i in range(half):
         j = i + half
