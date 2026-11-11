@@ -245,7 +245,7 @@ def ma_skirt_hem_of(person: np.ndarray, rgb: np.ndarray) -> float:
 
 def ma_skirt_flare(person: np.ndarray, hem: float) -> float:
     """How wide a skirt is at its hem (ma_depth's flare, share of the height), from a standing picture's person mask
-    and its hem (share of the height from the top): the median width just above the hem. On 12 the game skirts the
+    and its hem (share of the height from the top): the median width just above the hem. On 12 game skirts the
     pencil and straight ones were 0.11-0.13 wide there, the A-line and pleated ones 0.17-0.19."""
     ys = np.nonzero(person.any(1))[0]
     top, h = ys.min(), max(1, ys.max() - ys.min())

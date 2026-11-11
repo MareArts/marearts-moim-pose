@@ -73,7 +73,7 @@ ASK_LOOK = ("Describe this cartoon character from head to toe for an artist who 
             "of short phrases separated by commas, from the head down; nothing about the pose, the background or "
             "the drawing style.")
 HAND_BOX, HAND_PAST = 0.05, 0.015        # half the crop's side, its centre past the wrist; shares of the figure
-# Whether the person in the picture wears a skirt: with the words (ma_skirt_of) it found all 12 skirts of 50 the game
+# Whether the person in the picture wears a skirt: with the words (ma_skirt_of) it found all 12 skirts of 50 game
 # people and none of the jeans the words of one called a skirt; alone it boxed wide trousers as a skirt on 3. Its
 # box's bottom moved between asks (0.71 then 0.78 of the height for one hem), so the hem is measured on the pixels.
 ASK_SKIRT = ('Find the skirt or dress this person wears. A skirt or dress is one piece of cloth hanging around both '
