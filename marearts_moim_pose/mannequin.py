@@ -19,6 +19,7 @@ COLOURS = [(255, 0, 0), (255, 85, 0), (255, 170, 0), (255, 255, 0), (170, 255, 0
            (0, 255, 85), (0, 255, 170), (0, 255, 255), (0, 170, 255), (0, 85, 255), (0, 0, 255), (85, 0, 255),
            (170, 0, 255), (255, 0, 255), (255, 0, 170), (255, 0, 85)]
 FAR, BODY, HEAD, CHEST, BOX, NEAR = 70, 150, 165, 158, 200, 225     # depth values: brighter is nearer
+SHIN_W = 0.072                                                        # the shin's width (share of the height)
 SKIRT = 190                                                          # a skirt: over both thighs, under the near arm
 
 
@@ -48,7 +49,7 @@ def ma_skeleton(pts: dict) -> Image.Image:
 
 def ma_depth(pts: dict, head: float = 0.19, box: bool = False, bust: float = 0.0,
              seat: float = 0.06, skirt: float = 0.0, flare: float | None = None, body: float = 0.16,
-             torso: dict | None = None, heels: bool = False) -> Image.Image:
+             torso: dict | None = None, heels: bool = False, legs: float = 1.0) -> Image.Image:
     """The depth mannequin of a pose (RGB, near bright, far dark).
 
     head: head width as a share of the height. Use the person's own (a big anime head with hair is about 0.19), or
@@ -68,6 +69,8 @@ def ma_depth(pts: dict, head: float = 0.19, box: bool = False, bust: float = 0.0
     torso: the body's own outline from the neck past the hips (ma_fit, from the person's picture): drawn in place of
     the tube and the chest, so a slim waist, a chest and the hips come through to the drawing.
     heels: heeled shoes: the foot slopes down to its toes with a heel under it and the arch open between them.
+    legs: how thick the legs are against the mannequin's (thigh 0.1 and shin SHIN_W of the height); ma_fit
+    measures it on the person's picture.
     """
     from scipy import ndimage
     im = Image.new("L", (W, H))
@@ -82,15 +85,15 @@ def ma_depth(pts: dict, head: float = 0.19, box: bool = False, bust: float = 0.0
 
     def leg(hip_i, v):
         hp, kn, an = pts[hip_i], pts[hip_i + 1], pts[hip_i + 2]
-        cap(hp, kn, 0.1, v)
+        cap(hp, kn, 0.1 * legs, v)
         if heels:              # the shin ends small at the ankle, the foot slopes to its toes, a heel under it
-            d.line([kn, an], fill=v, width=round(0.072 * s))
+            d.line([kn, an], fill=v, width=round(SHIN_W * legs * s))
             for p, r in ((kn, 0.036 * s), (an, 0.02 * s)):
                 d.ellipse([p[0] - r, p[1] - r, p[0] + r, p[1] + r], fill=v)
             cap(an, (an[0] + 0.075 * s, an[1] + 0.03 * s), 0.026, v)
             cap((an[0] - 0.012 * s, an[1] + 0.008 * s), (an[0] - 0.014 * s, an[1] + 0.034 * s), 0.011, v)
         else:
-            cap(kn, an, 0.072, v)
+            cap(kn, an, SHIN_W * legs, v)
             cap(an, (an[0] + 0.075 * s, an[1] + 0.02 * s), 0.035, v)      # the foot, pointing right
 
     def arm(sho_i, v):
@@ -207,8 +210,13 @@ def ma_fit(person: np.ndarray) -> dict:
     torso = {"neck": round(float(neck), 4), "rows": rows, "from": "face"}
     out = (np.median([r[1] for f in np.linspace(0.26, 0.32, 7) if (r := row(f))]) - thin[1]) / h
     bust = body / 2 + out if out > 0.01 else 0.0
+    # the legs as thick as drawn: the narrowest row over the shins (both legs overlap standing side on) against the
+    # mannequin's shin. One shin for everyone drew every leg alike; on 34 people it was 0.050-0.10 of the height
+    # (median 0.073 for the mannequin's 0.072), girls in skirts and shorts at the thin end. Thinner only: two
+    # trouser legs standing a little apart read 0.10 on slim legs, and 1.25 drew them fat (11-11)
+    shin = min(((r[1] - r[0]) / h for f in np.linspace(0.80, 0.88, 9) if (r := row(f))), default=SHIN_W)
     return {"head": round(float(np.clip(head, 0.12, 0.26)), 3), "body": round(float(np.clip(body, 0.09, 0.22)), 3),
-            "bust": round(float(bust), 3), "torso": torso}
+            "bust": round(float(bust), 3), "torso": torso, "legs": round(float(np.clip(shin / SHIN_W, 0.7, 1.0)), 3)}
 
 
 def ma_skirt_hem_of(person: np.ndarray, rgb: np.ndarray) -> float:

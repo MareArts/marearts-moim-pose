@@ -583,3 +583,20 @@ def test_head_drawn_once_and_put_on_every_frame():
     for f, dy in zip(out[1:], (6, -4)):
         assert (f[158 + dy:198 + dy, 245:330] == (200, 160, 100, 255)).all()   # the box as this frame drew it
         assert (f[150 + dy:170 + dy, 330:400, 3] == 0).all()           # nothing of frame 0's laid beside it
+
+
+def test_legs_as_thick_as_drawn():
+    from marearts_moim_pose.gait import FIG, LHIP
+    from marearts_moim_pose.mannequin import SHIN_W, ma_fit
+    m = np.zeros((1100, 600), bool)                       # standing side on, 1000 px tall
+    m[50:250, 230:390] = True                              # head
+    m[250:820, 250:370] = True                             # neck to knees
+    m[820:1050, 280:335] = True                            # shins 0.055 thick: a slim girl in a skirt
+    assert abs(ma_fit(m)["legs"] - 0.055 / SHIN_W) < 0.02
+    m[820:1050, 250:370] = True                            # shins as wide as the trousers above: never thicker
+    assert ma_fit(m)["legs"] == 1.0
+    assert ma_fit(np.zeros((50, 50), bool)).get("legs", 1.0) == 1.0
+    pts = ma_walk_points(0.25)
+    y = int(pts[LHIP][1] + 0.75 * (pts[LHIP + 2][1] - pts[LHIP][1]))   # down the near shin
+    wide = [int((np.asarray(ma_depth(pts, legs=k).convert("L"))[y] > 30).sum()) for k in (0.7, 1.0)]
+    assert wide[0] < wide[1] - 0.25 * SHIN_W * FIG          # thinner legs drawn thinner
