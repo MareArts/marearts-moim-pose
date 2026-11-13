@@ -600,3 +600,22 @@ def test_legs_as_thick_as_drawn():
     y = int(pts[LHIP][1] + 0.75 * (pts[LHIP + 2][1] - pts[LHIP][1]))   # down the near shin
     wide = [int((np.asarray(ma_depth(pts, legs=k).convert("L"))[y] > 30).sum()) for k in (0.7, 1.0)]
     assert wide[0] < wide[1] - 0.25 * SHIN_W * FIG          # thinner legs drawn thinner
+
+
+def test_feet_turn_with_the_shin():
+    # a foot kept level under a shin swung back bent the ankle further than one bends; the video drew it kinked (11-13)
+    import math
+    from marearts_moim_pose.gait import ANKLE, FIG, GROUND, LKNE, RKNE
+    from marearts_moim_pose.mannequin import FOOT, ma_foot_turn
+    g = ma_gait("neat")
+    pts = [ma_walk_points(t, g) for t in ma_frame_phases(12, g)]
+    turn = [(ma_foot_turn(p[LKNE], p[LANK]), ma_foot_turn(p[RKNE], p[RANK])) for p in pts]
+    assert turn[0][0] < -10 < 30 < turn[1][1]          # heel strike: toes up; the back foot pushing off: toes down
+    assert turn[2][0] == 0 and turn[8][1] == 0          # the standing foot flat on the ground
+    for p, (near, far) in zip(pts, turn):               # toes never under the ground
+        for an, a in ((p[LANK], near), (p[RANK], far)):
+            toe = an[1] + math.hypot(*FOOT) * FIG * math.sin(math.atan2(FOOT[1], FOOT[0]) + math.radians(a))
+            assert toe <= GROUND - ANKLE * FIG + FOOT[1] * FIG + 1
+    lifted = [ma_foot_turn((0, 100), (-math.sin(math.radians(b)) * 100, 100 + math.cos(math.radians(b)) * 100))
+              for b in (20, 45)]                        # shins swung back 20 and 45 degrees, the foot well off the ground
+    assert [round(x) for x in lifted] == [20, 45]       # square to the shin, as an ankle at rest

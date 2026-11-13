@@ -11,7 +11,7 @@ import math
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .gait import FIG, H, LHIP, LSHO, NECK_I, NOSE, RHIP, RSHO, W
+from .gait import ANKLE, FIG, GROUND, H, LHIP, LSHO, NECK_I, NOSE, RHIP, RSHO, W
 
 LIMBS = [(1, 2), (1, 5), (2, 3), (3, 4), (5, 6), (6, 7), (1, 8), (8, 9), (9, 10), (1, 11), (11, 12), (12, 13),
          (1, 0), (0, 14), (14, 16), (0, 15), (15, 17)]
@@ -21,6 +21,25 @@ COLOURS = [(255, 0, 0), (255, 85, 0), (255, 170, 0), (255, 255, 0), (170, 255, 0
 FAR, BODY, HEAD, CHEST, BOX, NEAR = 70, 150, 165, 158, 200, 225     # depth values: brighter is nearer
 SHIN_W = 0.072                                                        # the shin's width (share of the height)
 SKIRT = 190                                                          # a skirt: over both thighs, under the near arm
+FOOT = (0.075, 0.02)                                                 # ankle to toes standing flat (share of the height)
+
+
+def ma_foot_turn(kn: tuple, an: tuple) -> float:
+    """How far the foot turns toes-down from standing flat (degrees, < 0 toes up), from the shin and the ankle's height.
+
+    A foot drawn flat whatever the leg did bent the ankle past what one bends: a shin swinging back 40-60 degrees with
+    the foot still level under it, and the video drew that foot kinked at the ankle on lifting and swinging legs
+    (11-13, "the ankle bends too often"). A foot goes with its shin (square to it, as an ankle at rest), but while
+    its toes can still reach the ground they stay there: the heel rises, the toes push off, then it swings. A shin
+    leaning forward lifts the toes the same way, as at heel strike."""
+    s = FIG
+    back = -math.degrees(math.atan2(an[0] - kn[0], an[1] - kn[1]))             # the shin leaning back from upright
+    if back <= 0:
+        return max(back, -25.0)
+    lift = max(0.0, GROUND - ANKLE * s - an[1])                               # the ankle above where it stands
+    flat, reach = math.degrees(math.atan2(FOOT[1], FOOT[0])), math.hypot(*FOOT) * s
+    toes_down = math.degrees(math.asin(min(1.0, (FOOT[1] * s + lift) / reach))) - flat
+    return min(back, toes_down, 65.0)
 
 
 def ma_skeleton(pts: dict) -> Image.Image:
@@ -85,16 +104,21 @@ def ma_depth(pts: dict, head: float = 0.19, box: bool = False, bust: float = 0.0
 
     def leg(hip_i, v):
         hp, kn, an = pts[hip_i], pts[hip_i + 1], pts[hip_i + 2]
+        turn = math.radians(ma_foot_turn(kn, an))
+        c, sn = math.cos(turn), math.sin(turn)
+
+        def at(dx, dy):        # a point of the foot, turned about the ankle with it
+            return an[0] + (dx * c - dy * sn) * s, an[1] + (dx * sn + dy * c) * s
         cap(hp, kn, 0.1 * legs, v)
         if heels:              # the shin ends small at the ankle, the foot slopes to its toes, a heel under it
             d.line([kn, an], fill=v, width=round(SHIN_W * legs * s))
             for p, r in ((kn, 0.036 * s), (an, 0.02 * s)):
                 d.ellipse([p[0] - r, p[1] - r, p[0] + r, p[1] + r], fill=v)
-            cap(an, (an[0] + 0.075 * s, an[1] + 0.03 * s), 0.026, v)
-            cap((an[0] - 0.012 * s, an[1] + 0.008 * s), (an[0] - 0.014 * s, an[1] + 0.034 * s), 0.011, v)
+            cap(an, at(0.075, 0.03), 0.026, v)
+            cap(at(-0.012, 0.008), at(-0.014, 0.034), 0.011, v)
         else:
             cap(kn, an, SHIN_W * legs, v)
-            cap(an, (an[0] + 0.075 * s, an[1] + 0.02 * s), 0.035, v)      # the foot, pointing right
+            cap(an, at(*FOOT), 0.035, v)                                    # the foot, pointing right
 
     def arm(sho_i, v):
         sh, el, wr = pts[sho_i], pts[sho_i + 1], pts[sho_i + 2]
