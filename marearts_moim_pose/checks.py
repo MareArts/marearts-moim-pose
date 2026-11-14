@@ -55,10 +55,11 @@ def ma_extra_limbs(mask: np.ndarray, depth: Image.Image) -> tuple[float, int]:
     return big, sorted(counts)[-2]
 
 
-def ma_arm_reach(mask: np.ndarray, depth: Image.Image, pts: dict) -> float:
+def ma_arm_reach(mask: np.ndarray, depth: Image.Image, pts: dict, hair: float = 0.0) -> float:
     """How far the drawn arms reach past the mannequin's, in % of the person's height: in the rows from below the
     shoulders to just under the lower hand, the person's front edge past the mannequin's, and its back edge, the
-    90th percentile of each, the larger."""
+    90th percentile of each, the larger. hair: how far the person's hair hangs behind the back on the standing
+    picture (share of the height, ma_fit's torso "hair"); the back edge counts only past it."""
     from .gait import LSHO, RSHO
     m = ma_person(mask)
     man = np.asarray(depth.convert("L").resize(m.shape[::-1])) > 20
@@ -74,7 +75,7 @@ def ma_arm_reach(mask: np.ndarray, depth: Image.Image, pts: dict) -> float:
             behind.append(b.min() - a.min())
     if not ahead:
         return 0.0
-    return float(max(np.percentile(ahead, 90), np.percentile(behind, 90)) / h * 100)
+    return float(max(np.percentile(ahead, 90), np.percentile(behind, 90) - hair * h) / h * 100)
 
 
 def ma_stray_arm(mask: np.ndarray, depth: Image.Image, pts: dict) -> tuple[int, int, int, int] | None:
@@ -163,13 +164,14 @@ def ma_box_drift(rgb: np.ndarray, mask: np.ndarray, pts: dict) -> tuple[float, f
     return float(rows.min() - ma_box_rect(pts)[1]), float(((hsv[..., 2] < 0.62) & box).sum() / box.sum())
 
 
-def ma_frame_ok(rgb: np.ndarray, mask: np.ndarray, depth: Image.Image, pts: dict, kind: str) -> tuple[bool, str]:
-    """All measured checks of one frame: (passes, what was measured)."""
+def ma_frame_ok(rgb: np.ndarray, mask: np.ndarray, depth: Image.Image, pts: dict, kind: str,
+                hair: float = 0.0) -> tuple[bool, str]:
+    """All measured checks of one frame: (passes, what was measured). hair: as ma_arm_reach."""
     outside, legs = ma_extra_limbs(mask, depth)
     said = f"outside {outside:.1f}, legs {legs}"
     ok = outside < OUTSIDE_MAX and legs < LEGS_MAX
     if kind == "walk":
-        reach = ma_arm_reach(mask, depth, pts)
+        reach = ma_arm_reach(mask, depth, pts, hair)
         said += f", arms {reach:.1f}"
         ok = ok and reach <= REACH_MAX
         if ma_stray_arm(mask, depth, pts):

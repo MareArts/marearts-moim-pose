@@ -619,3 +619,31 @@ def test_feet_turn_with_the_shin():
     lifted = [ma_foot_turn((0, 100), (-math.sin(math.radians(b)) * 100, 100 + math.cos(math.radians(b)) * 100))
               for b in (20, 45)]                        # shins swung back 20 and 45 degrees, the foot well off the ground
     assert [round(x) for x in lifted] == [20, 45]       # square to the shin, as an ankle at rest
+
+
+def test_long_hair_behind_is_not_an_arm():
+    # hair down the back read as an arm swung back: long-haired girls failed the arm check with their arms at their
+    # sides (11-14). The standing picture says how far the hair hangs; only an arm past it fails
+    from marearts_moim_pose.mannequin import ma_fit
+    m = np.zeros((1100, 600), bool)                       # standing side on, 1000 px tall, facing right
+    m[50:200, 240:400] = True                              # head
+    m[200:560, 260:380] = True                             # body to the hips
+    m[560:1050, 280:360] = True                            # legs
+    assert ma_fit(m)["torso"]["hair"] < 0.01               # no hair behind: nothing allowed
+    m[200:500, 170:260] = True                             # hair to the waist, 9 % of the height behind the back
+    hair = ma_fit(m)["torso"]["hair"]
+    assert 0.06 < hair < 0.12
+    pts = ma_walk_points(0.25)                             # arms hanging
+    dep = ma_depth(pts)
+    drawn = np.asarray(dep.convert("L")) > 20
+    ys = np.nonzero(drawn.any(1))[0]
+    h = ys.max() - ys.min()
+    r0, r1 = int(pts[LSHO][1] + 0.08 * h), int(pts[LSHO + 2][1])
+    back = np.nonzero(drawn[r0])[0].min()
+    with_hair = drawn.copy()
+    with_hair[r0:r1, back - int(0.085 * h):back] = True
+    assert ma_arm_reach(with_hair, dep, pts) > REACH_MAX
+    assert ma_arm_reach(with_hair, dep, pts, hair) <= REACH_MAX
+    swung = drawn.copy()                                   # an arm far behind, past where the hair hangs
+    swung[r0:r1, back - int((hair + 0.07) * h):back] = True
+    assert ma_arm_reach(swung, dep, pts, hair) > REACH_MAX

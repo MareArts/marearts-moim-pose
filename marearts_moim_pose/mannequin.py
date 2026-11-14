@@ -231,7 +231,12 @@ def ma_fit(person: np.ndarray) -> dict:
         r = row(f) or thin
         most = (BACK_MAX if f < fw else BACK_HIP) * t
         rows.append([round((r[1] - face) / h, 4), round((max(r[0], axis - most) - face) / h, 4)])
-    torso = {"neck": round(float(neck), 4), "rows": rows, "from": "face"}
+    # hair hanging down the back past where a back stands, beside the arms (from below the shoulders to the hips):
+    # walking, it reads as an arm swung back. Three long-haired girls failed the arm check on 200 of 246 tries
+    # with their arms at their sides, the hair 9-11 % of the height behind them (11-14); a ponytail stays above it
+    over = [max(0.0, axis - (BACK_MAX if f < fw else BACK_HIP) * t - (row(f) or thin)[0]) / h
+            for f in np.linspace(neck + 0.08, 1 - HIP, TORSO_ROWS)]
+    torso = {"neck": round(float(neck), 4), "rows": rows, "from": "face", "hair": round(float(max(over)), 4)}
     out = (np.median([r[1] for f in np.linspace(0.26, 0.32, 7) if (r := row(f))]) - thin[1]) / h
     bust = body / 2 + out if out > 0.01 else 0.0
     # the legs as thick as drawn: the narrowest row over the shins (both legs overlap standing side on) against the

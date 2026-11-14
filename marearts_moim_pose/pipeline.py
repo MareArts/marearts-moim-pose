@@ -180,7 +180,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         mask = comfy.run(ma_cutout_graph(fname), raw / f"{req.kind}_{i}_mask.png")
         rgb = np.asarray(Image.open(frame).convert("RGB"))
         m = np.asarray(Image.open(mask).convert("L").resize((rgb.shape[1], rgb.shape[0]))) > 128
-        ok, said = ma_frame_ok(rgb, m, depths[i], pts[i], req.kind)
+        ok, said = ma_frame_ok(rgb, m, depths[i], pts[i], req.kind, (shape["torso"] or {}).get("hair", 0.0))
         verdict = ""
         if ok and judge is not None:
             ok, verdict = judge.arms_ok(Image.open(frame), req.kind, hands[i])
