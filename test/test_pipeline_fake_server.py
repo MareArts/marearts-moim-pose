@@ -812,3 +812,41 @@ def test_feet_clean_reads_yes_as_a_ghost_shoe():
     ok, said = j.feet_clean(im)
     assert not ok and "ghost" in said and j.asked == [((400, 380), ASK_FEET_CLEAN)]     # the legs and feet only
     assert Said("No").feet_clean(im)[0] and Said(" no, the shoes are clean").feet_clean(im)[0]
+
+
+def test_run_stopped_part_way_goes_on_where_it_stopped(tmp_path):
+    # a batch on a shared GPU steps aside mid-scene; started again it drew the whole scene over (11-14)
+    class Stops(MaComfy):
+        sharp = 0
+
+        def run(self, graph, out, node="17", retries=1):
+            if "40" in graph and "45" not in graph:          # a frame made sharp from the video
+                Stops.sharp += 1
+                if Stops.sharp == 5:                         # frame 0 twice, frames 1 and 2, then frame 3: stopped
+                    raise SystemExit("someone waits for the GPU")
+            return super().run(graph, out, node, retries)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        ref = tmp_path / "person.png"
+        Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
+        req = MaRequest(reference=ref, out=tmp_path / "out", name="t", height=120, far_shade=0.55)
+        url = f"http://127.0.0.1:{srv.server_port}"
+        try:
+            ma_draw_cycle(req, Stops(url), log=lambda s: None)
+        except SystemExit:
+            pass
+        assert (tmp_path / "out" / "raw" / "walk_resume.json").exists()
+        Fake.calls.clear()
+        lines = []
+        res = ma_draw_cycle(req, MaComfy(url), log=lines.append)
+    finally:
+        srv.shutdown()
+    assert any("frames [0, 1, 2] kept, the video kept" in s for s in lines), lines
+    assert "video" not in Fake.calls                                  # the video drawn once, before the stop
+    assert Fake.calls.count("sharpen") == req.frames - 3              # frames 3-11 only
+    after = {c[1] for c in Fake.calls if isinstance(c, tuple) and c[0] == "ref"}
+    assert after == {"t_walk_look.png"}                               # still from frame 0's look
+    assert len(res["report"]) == req.frames and all(r["passed"] for r in res["report"])
+    assert not (tmp_path / "out" / "raw" / "walk_resume.json").exists() and res["files"]["review"]

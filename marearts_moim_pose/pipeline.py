@@ -346,7 +346,35 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
 
     drawn = list(only) if only is not None else list(range(req.frames))
     starts, look = {}, None
-    if req.engine == "video" and only is None and use_seed is None:
+    # A run stopped part way (a shared GPU given to another job) goes on where it stopped: the video, frame 0's look,
+    # the head bar and every frame already through its seeds are kept. Started over, a scene stopped ten times in a
+    # day threw away up to an hour each time, and the same scene was drawn five times (11-14)
+    resume = raw / f"{req.kind}_resume.json"
+    state = None
+    if only is None and use_seed is None and resume.exists():
+        state = json.loads(resume.read_text(encoding="utf-8"))
+        if state.get("frames") != req.frames or state.get("seed") != req.seed:
+            state = None
+    done = set()
+
+    def keep_going():
+        resume.write_text(json.dumps(dict(frames=req.frames, seed=req.seed, video=bool(starts), head_min=head_min[0],
+                                          done=sorted(done), rows=[report[k] for k in sorted(report)])) + "\n",
+                          encoding="utf-8")
+
+    if state is not None:
+        report.update({r["frame"]: r for r in state["rows"]})
+        head_min[0], done = state["head_min"], set(state["done"])
+        if state["video"]:
+            n = req.frames
+            starts = {i: comfy.upload(Image.open(raw / "video" / f"{req.kind}_{n + i:02d}.png").convert("RGB")
+                                      .resize((W, H), Image.LANCZOS), f"{req.name}_{req.kind}_vstart_{i}.png")
+                      for i in range(n) if (raw / "video" / f"{req.kind}_{n + i:02d}.png").exists()}
+            look = comfy.upload(Image.open(raw / f"{req.kind}_look.png").convert("RGB"),
+                                f"{req.name}_{req.kind}_look.png")
+        log(f"going on where the last run stopped: frames {sorted(done) or 'none'} kept"
+            + (", the video kept" if starts else ""))
+    elif req.engine == "video" and only is None and use_seed is None:
         draw_frame(0)
         # how like the picture this person's own drawn frame 0 came out sets the bar for the rest: a man with a shaved
         # head, the same man in every frame by eye, scored 0.85-0.91 against his picture (a bald crown says little)
@@ -377,10 +405,18 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
             # drawn from frame 0 and not from the standing picture, or each one reads the hem, pockets and cuffs its
             # own way. An older man's walk changed at the hem by 24 between frames drawn from his picture, 22 from
             # frame 0 (the video alone 20); frames with a hand drawn again from his picture by 45-66 (11-04)
-            look = comfy.upload(Image.open(raw / f"{req.kind}_0.png").convert("RGB"), f"{req.name}_{req.kind}_look.png")
+            Image.open(raw / f"{req.kind}_0.png").convert("RGB").save(raw / f"{req.kind}_look.png")
+            look = comfy.upload(Image.open(raw / f"{req.kind}_look.png"), f"{req.name}_{req.kind}_look.png")
+    if only is None and use_seed is None:
+        keep_going()
     for i in drawn:
+        if i in done:
+            continue
         draw_frame(i)
-    missing = [i for i in range(req.frames) if not (raw / f"{req.kind}_{i}.png").exists()]
+        if only is None and use_seed is None:
+            done.add(i)
+            keep_going()
+    missing =[i for i in range(req.frames) if not (raw / f"{req.kind}_{i}.png").exists()]
     if not missing and judge is not None and use_seed is None:
         feet_pass()
     if not missing and req.alternate:
@@ -416,6 +452,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         log(f"frames {missing} not drawn yet: no lock or sheet")
         return dict(report=rows, files={})
     files = ma_finish(req, phases, pts, depths)
+    resume.unlink(missing_ok=True)                       # the scene is whole: the next run starts it afresh
     return dict(report=json.loads(path.read_text(encoding="utf-8")), files=files)   # with the two-step check
 
 
