@@ -13,6 +13,7 @@ sheet and draws the frames they do not like again by number (--only); those get 
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -216,11 +217,6 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         passes it all and the frame was smeared by the measures, the try with the cleanest outline that passes them is
         kept."""
         files = lambda i: (raw / f"{req.kind}_{i}.png", raw / f"{req.kind}_{i}_mask.png")
-        # a run stopped during a try left the try in the frame's place: the frame as it was goes back first
-        for k in range(req.frames):
-            for p in files(k):
-                if (p.parent / f"{p.stem}_feet_keep.png").exists():
-                    (p.parent / f"{p.stem}_feet_keep.png").replace(p)
         got = [feet(i) for i in range(req.frames)]
         mid = float(np.median([d for d, _, _ in got]))
         if mid < FEET_MIN:
@@ -381,21 +377,35 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
 
     drawn = list(only) if only is not None else list(range(req.frames))
     starts, look = {}, None
+    # a run stopped during a try on the feet left the try in the frame's place: the frame as it was goes back before
+    # anything is drawn (put back later, it would cover a frame drawn again in between)
+    for k in range(req.frames):
+        for f in (raw / f"{req.kind}_{k}.png", raw / f"{req.kind}_{k}_mask.png"):
+            if (f.parent / f"{f.stem}_feet_keep.png").exists():
+                (f.parent / f"{f.stem}_feet_keep.png").replace(f)
     # A run stopped part way (a shared GPU given to another job) goes on where it stopped: the video, frame 0's look,
     # the head bar and every frame already through its seeds are kept. Started over, a scene stopped ten times in a
     # day threw away up to an hour each time, and the same scene was drawn five times (11-14)
     resume = raw / f"{req.kind}_resume.json"
+    # the person's picture as this run reads it: another picture in the same folder starts the scene over
+    picture = hashlib.sha256((raw / "reference.png").read_bytes()).hexdigest()[:16]
     state = None
     if only is None and use_seed is None and resume.exists():
-        state = json.loads(resume.read_text(encoding="utf-8"))
-        if state.get("frames") != req.frames or state.get("seed") != req.seed:
+        try:
+            state = json.loads(resume.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            log(f"{resume.name} could not be read: the scene starts over")
+        if state is not None and (state.get("frames") != req.frames or state.get("seed") != req.seed
+                                  or state.get("picture", picture) != picture):
             state = None
     done = set()
 
     def keep_going():
-        resume.write_text(json.dumps(dict(frames=req.frames, seed=req.seed, video=bool(starts), head_min=head_min[0],
-                                          done=sorted(done), rows=[report[k] for k in sorted(report)])) + "\n",
-                          encoding="utf-8")
+        part = resume.with_suffix(".json.part")          # written whole, then put in place: a stop mid-write leaves
+        part.write_text(json.dumps(dict(frames=req.frames, seed=req.seed, picture=picture, video=bool(starts),
+                                        head_min=head_min[0], done=sorted(done),
+                                        rows=[report[k] for k in sorted(report)])) + "\n", encoding="utf-8")
+        part.replace(resume)                             # the last whole one
 
     if state is not None:
         report.update({r["frame"]: r for r in state["rows"]})
@@ -453,7 +463,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         if only is None and use_seed is None:
             done.add(i)
             keep_going()
-    missing =[i for i in range(req.frames) if not (raw / f"{req.kind}_{i}.png").exists()]
+    missing = [i for i in range(req.frames) if not (raw / f"{req.kind}_{i}.png").exists()]
     if not missing and judge is not None and use_seed is None:
         feet_pass()
     if not missing and req.alternate and not feet_only:

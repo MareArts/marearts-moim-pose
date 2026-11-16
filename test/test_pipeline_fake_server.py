@@ -946,3 +946,80 @@ def test_run_stopped_part_way_goes_on_where_it_stopped(tmp_path):
     assert after == {"t_walk_look.png"}                               # still from frame 0's look
     assert len(res["report"]) == req.frames and all(r["passed"] for r in res["report"])
     assert not (tmp_path / "out" / "raw" / "walk_resume.json").exists() and res["files"]["review"]
+
+
+def _stopped_run(tmp_path, pic=(0, 0, 0, 0)):
+    """A scene stopped after frames 0-2 (as in the test above): the request and the server address."""
+    class Stops(MaComfy):
+        sharp = 0
+
+        def run(self, graph, out, node="17", retries=1):
+            if "40" in graph and "45" not in graph:
+                Stops.sharp += 1
+                if Stops.sharp == 5:
+                    raise SystemExit("someone waits for the GPU")
+            return super().run(graph, out, node, retries)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    ref = tmp_path / "person.png"
+    Image.new("RGBA", (300, 700), pic).save(ref)
+    req = MaRequest(reference=ref, out=tmp_path / "out", name="t", height=120, far_shade=0.55)
+    url = f"http://127.0.0.1:{srv.server_port}"
+    try:
+        ma_draw_cycle(req, Stops(url), log=lambda s: None)
+    except SystemExit:
+        pass
+    return srv, req, url
+
+
+def test_resume_cut_short_or_for_another_picture_starts_over(tmp_path):
+    # review note 2 (11-16): a stop mid-write left half a file and the next run died on it; a new picture in the same
+    # folder went on with the old person's frames
+    srv, req, url = _stopped_run(tmp_path)
+    resume = tmp_path / "out" / "raw" / "walk_resume.json"
+    try:
+        whole = resume.read_text()
+        assert '"picture"' in whole and not list(resume.parent.glob("*.part"))
+        resume.write_text(whole[: len(whole) // 2])                  # cut short
+        lines = []
+        ma_draw_cycle(req, MaComfy(url), log=lines.append)
+        assert any("could not be read: the scene starts over" in s for s in lines), lines
+        assert not any("going on where the last run stopped" in s for s in lines)
+    finally:
+        srv.shutdown()
+
+    srv, req, url = _stopped_run(tmp_path / "b")
+    try:
+        im = Image.new("RGBA", (300, 700), (0, 0, 0, 0))
+        im.paste(Image.new("RGBA", (40, 40), (200, 30, 30, 255)), (100, 100))
+        im.save(req.reference)                                       # another picture, the same folder
+        lines = []
+        ma_draw_cycle(req, MaComfy(url), log=lines.append)
+        assert not any("going on where the last run stopped" in s for s in lines), lines
+    finally:
+        srv.shutdown()
+
+
+def test_feet_try_left_by_a_stop_goes_back_before_a_frame_is_drawn_again(tmp_path):
+    # review note 1 (11-16): the frame as it was, kept beside a feet try, was put back only in the feet step, over a
+    # frame drawn again with --only in between
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    ref = tmp_path / "person.png"
+    Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
+    req = MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120)
+    url = f"http://127.0.0.1:{srv.server_port}"
+    judge = _FeetJudge()
+    judge.feet_clean = lambda im: (True, "no")
+    try:
+        ma_draw_cycle(req, MaComfy(url), log=lambda s: None)
+        raw = tmp_path / "out" / "raw"
+        Image.new("RGB", (8, 8), (255, 0, 0)).save(raw / "walk_3_feet_keep.png")        # a stop mid-try
+        (raw / "walk_3_mask.png").replace(raw / "walk_3_mask_feet_keep.png")
+        ma_draw_cycle(req, MaComfy(url), judge=judge, only=[3], log=lambda s: None)
+    finally:
+        srv.shutdown()
+    assert not list(raw.glob("*_feet_keep.png"))
+    assert Image.open(raw / "walk_3.png").size != (8, 8)                 # the frame drawn again, not the old one
