@@ -25,6 +25,7 @@ still work.
 | A third hand or foot appears, a hand goes missing, or the arms stand still while the legs walk | The model guesses where the far arm is, and a video loses hands that move fast | Each frame is **told where its arms are** (hanging, near arm forward, near arm back). Measured checks against the mannequin (an arm swung past it fails), and an optional **vision-model judge**: it draws a **box around each hand** and counts the boxes (asked to list the hands, it skipped one hanging under the coat between the two), says yes or no on a small crop **where the mannequin has the hand**, and counts the shoes. A hand the video lost is drawn again in the mannequin's hand crop only; a hand too many is drawn over in its box and the sleeve above it; the rest of the frame stays as it was |
 | The coat ends at the hip at the back, the trousers' seat showing | In a mannequin with the thigh drawn over the body, the top of the thigh says "trousers" where a coat hangs | The mannequin's **seat covers the top of the near thigh** |
 | The face turns to the viewer and becomes someone else | A plain oval head says nothing of where the face looks | The mannequin's head has a **nose**, the face in profile; with the judge, each head is compared with the picture's (DINOv2) and a frame of another person is drawn again |
+| A shoe comes out soft, doubled or streaked | The video blurs the foot that swings past the other, and a vision model also calls two shoes passing each other "a shoe drawn twice" | The feet are **measured**: how much fine line they have against the rest of the cycle, and how much of their outline has **no ink line** round it (a drawn shoe is outlined, a smear is not). A smeared foot is drawn again in a box round the feet only; when the judge alone objects, two tries and the frame stays |
 | Height and head size wobble a few percent, and the feet slide | Drawn frames are never exactly the size of the pose | A **lock**: one master frame sets the head and the floor, the height follows the walk's own smooth wave, the legs are laid on the mannequin's legs |
 | The sprite skates across the ground, or the arms move in jumps | A leg turning at an even rate moves the planted foot unevenly, and frames picked to make up for it come at uneven times | The standing leg is solved so the planted foot goes back the **same distance every frame** at even time steps (a body walks at a steady speed), and each arm swings on one smooth wave; that distance is written to the JSON |
 
@@ -155,6 +156,7 @@ keeps every frame's history:
 ```bash
 moim-pose draw alice.png --out out/alice --only 3 5      # frames 3 and 5 again, then lock and sheets again
 moim-pose draw alice.png --out out/alice --only 3 --use-seed 7   # a new try was worse: back to seed 7
+moim-pose draw alice.png --out out/alice --only 3 --feet-only   # frame 3 kept, only its feet drawn again
 ```
 
 A new seed is not always better. Each frame's report row keeps every seed it has tried, so you can go back.
