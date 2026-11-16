@@ -845,6 +845,12 @@ def test_judge_calling_every_shoe_a_ghost_keeps_the_cleanest_try(tmp_path):
     # the clean frames, called a ghost too, stay as they were drawn: the judge alone does not swap a frame for a try
     kept = [s for s in lines if "feet kept as drawn" in s]
     assert kept and not any(s.startswith("frame 3") for s in kept), kept
+    # and tried twice only: the measures found nothing on them
+    from collections import Counter
+    from marearts_moim_pose.comfy import FEET_JUDGE_TRIES
+    tries = Counter(int(re.match(r"frame (\d+)", s).group(1)) for s in lines if "drawn again" in s)
+    assert tries[3] > FEET_JUDGE_TRIES and all(v <= FEET_JUDGE_TRIES for k, v in tries.items() if k != 3), tries
+    assert not list((tmp_path / "out" / "raw").glob("*_feet_keep.png"))     # the frames as they were, put away
 
 
 def test_feet_only_mends_a_finished_cycle_without_drawing_it(tmp_path):

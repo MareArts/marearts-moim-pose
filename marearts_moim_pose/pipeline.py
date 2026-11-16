@@ -25,8 +25,8 @@ from PIL import Image
 from .checks import (FACING_SURE, ma_alternate_reason, ma_alternates, ma_clothes_change, ma_cutout, ma_feet_detail,
                      ma_feet_unlined, ma_stray_arm,
                      ma_facing, ma_frame_ok)
-from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, FEET_FIX, FEET_HIGH, FEET_LOW, FEET_MIN,
-                    FEET_UNLINED, HAND_FIX,
+from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, FEET_FIX, FEET_HIGH, FEET_JUDGE_TRIES,
+                    FEET_LOW, FEET_MIN, FEET_UNLINED, HAND_FIX,
                     HEAD_FIX, STRAY_BAND, STRAY_FIX, STYLE, VIDEO_H, VIDEO_W, WALK,
                     MaComfy, ma_arm_words,
                     ma_cutout_graph, ma_hand_fix_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt,
@@ -215,6 +215,12 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         feet from frame 0's look, kept if they come out like the rest and the frame still passes. When no try
         passes it all and the frame was smeared by the measures, the try with the cleanest outline that passes them is
         kept."""
+        files = lambda i: (raw / f"{req.kind}_{i}.png", raw / f"{req.kind}_{i}_mask.png")
+        # a run stopped during a try left the try in the frame's place: the frame as it was goes back first
+        for k in range(req.frames):
+            for p in files(k):
+                if (p.parent / f"{p.stem}_feet_keep.png").exists():
+                    (p.parent / f"{p.stem}_feet_keep.png").replace(p)
         got = [feet(i) for i in range(req.frames)]
         mid = float(np.median([d for d, _, _ in got]))
         if mid < FEET_MIN:
@@ -223,7 +229,6 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
             ask = getattr(judge, "feet_clean", None)
             return ask is None or ask(Image.open(raw / f"{req.kind}_{i}.png"))[0]
 
-        files = lambda i: (raw / f"{req.kind}_{i}.png", raw / f"{req.kind}_{i}_mask.png")
         for i in drawn:
             r, m, unl = got[i][0] / mid, got[i][1], got[i][2]
             # a ghost shoe or a streak behind a lifting foot keeps the fine line of the rest (11-09): asked too
@@ -231,10 +236,15 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
                 continue
             row = report[i]
             keep = {p: p.read_bytes() for p in files(i)}
+            for p, data in keep.items():
+                (p.parent / f"{p.stem}_feet_keep.png").write_bytes(data)
+            smeared = not FEET_LOW <= r <= FEET_HIGH or unl > FEET_UNLINED     # by the measures, not the judge alone
+            # the judge alone: a few tries (it called 40 clean frames of 55 a ghost, 11-16), the measures: all of them
+            n_tries = tries if smeared else min(tries, FEET_JUDGE_TRIES)
             sharp = comfy.upload(Image.open(raw / f"{req.kind}_{i}.png").convert("RGB"), f"{req.name}_{req.kind}_sharp_{i}.png")
             mask = comfy.upload(ma_feet_mask(m), f"{req.name}_{req.kind}_feet_{i}.png")
             ok, best = False, None
-            for sd in [x for x in ma_seeds(req.seed) if x not in row["tried"]][:tries]:
+            for sd in [x for x in ma_seeds(req.seed) if x not in row["tried"]][:n_tries]:
                 row["tried"].append(sd)
                 ok, said, verdict = draw(i, sd, look or ref_name, start=sharp, mask=mask, denoise=FEET_FIX)
                 d, _, u = feet(i)
@@ -255,7 +265,6 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
                 # go, 40 were clean by eye, and each smeared one stayed as the video drew it (11-16)
                 if fits and (best is None or u < best[0]):
                     best = (u, sd, head_only, said, verdict, after, {p: p.read_bytes() for p in files(i)})
-            smeared = not FEET_LOW <= r <= FEET_HIGH or unl > FEET_UNLINED     # by the measures, not the judge alone
             if not ok and best is not None and best[0] <= FEET_UNLINED and smeared:
                 u, sd, head_only, said, verdict, after, data = best
                 for p, b in data.items():
@@ -269,6 +278,10 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
                     p.write_bytes(data)
                 row["feet"] = round(r, 2)
                 log(f"frame {i}: feet kept as drawn ({r:.2f} of the cycle's, unlined {unl:.2f}); look at them")
+            for p in files(i):
+                (p.parent / f"{p.stem}_feet_keep.png").unlink(missing_ok=True)
+            if only is None and use_seed is None:
+                keep_going()                             # the seeds tried on the feet are not tried again
         path.write_text(json.dumps([report[k] for k in sorted(report)], indent=2) + "\n", encoding="utf-8")
 
     def face0(i):

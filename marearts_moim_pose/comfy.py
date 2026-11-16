@@ -281,6 +281,7 @@ FEET_MIN = 2.0      # feet with less line than this (drawings 3.8-16.7; flat col
 # 28 people the 560 not passing a foot past the other read 0.00-0.09 (99 % under 0.03); every passing frame over 0.10
 # was a soft or doubled shoe by eye, the worst 0.52 (11-16)
 FEET_UNLINED = 0.10
+FEET_JUDGE_TRIES = 2  # tries when only the judge sees a ghost shoe and the measures are clean
 
 
 def ma_hand_fix_graph(depth_image: str, ref_image: str, start_image: str, mask_image: str, prompt: str,
