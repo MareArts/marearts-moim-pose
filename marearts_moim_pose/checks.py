@@ -368,3 +368,26 @@ def ma_feet_detail(grey: np.ndarray, mask: np.ndarray) -> float:
     inner = ndimage.binary_erosion(m, iterations=4)
     inner[:y0] = False
     return float(lap[inner].mean()) if inner.any() else 0.0
+
+
+def ma_feet_unlined(rgb: np.ndarray, mask: np.ndarray, share: float = 0.2, ink: int = 4) -> float:
+    """How much of the outline over the lowest `share` of the figure has no ink line within `ink` px (0 to 1). A
+    drawing outlines its shoes; the video smears a foot swinging past the other into a soft, faded shape with no
+    line round it, and keeps enough fine line inside for ma_feet_detail to pass it (11-16: 33 of 672 frames, all but
+    one the passing frames). Ink is very dark or clearly darker than the person round it (the background left out,
+    so a white or transparent one reads the same)."""
+    from scipy import ndimage
+    m = ma_person(mask)
+    ys = np.nonzero(m.any(1))[0]
+    if not len(ys):
+        return 0.0
+    top, bot = ys.min(), ys.max()
+    luma = rgb[..., :3].astype(float) @ np.array([0.299, 0.587, 0.114])
+    near = ndimage.uniform_filter(luma * m, 9) / np.maximum(ndimage.uniform_filter(m.astype(float), 9), 1e-6)
+    dark = m & ((luma < 80) | (luma < near - 35))
+    edge = m & ~ndimage.binary_erosion(m, iterations=1)
+    edge[:int(bot - share * (bot - top))] = False
+    edge[bot - 2:] = False                               # the soles on the ground line
+    if not edge.any():
+        return 0.0
+    return float((edge & ~ndimage.binary_dilation(dark, iterations=ink)).sum() / edge.sum())

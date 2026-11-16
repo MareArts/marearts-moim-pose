@@ -68,7 +68,8 @@ def cmd_draw(args):
     if args.judge:
         from .judge import MaHttpJudge, MaLocalJudge
         judge = MaHttpJudge(args.judge, args.judge_model) if args.judge.startswith("http") else MaLocalJudge(args.judge)
-    res = ma_draw_cycle(_request(args), MaComfy(args.server), judge=judge, only=args.only, use_seed=args.use_seed)
+    res = ma_draw_cycle(_request(args), MaComfy(args.server), judge=judge, only=args.only, use_seed=args.use_seed,
+                        feet_only=getattr(args, "feet_only", False))
     print(json.dumps(res["files"], indent=2))
 
 
@@ -128,6 +129,8 @@ def main(argv=None):
             p.add_argument("--only", type=int, nargs="*", default=None, help="draw only these frames again")
             p.add_argument("--use-seed", type=int, default=None,
                            help="with --only: this exact seed (go back to an earlier try; see the report's tried list)")
+            p.add_argument("--feet-only", action="store_true",
+                           help="with --only: keep those frames as drawn, check and mend only their feet")
             p.add_argument("--facing", choices=("auto", "right", "left"), default="auto",
                            help="which way the picture faces (left: mirrored first); auto: the judge, else the feet")
             p.add_argument("--engine", choices=("video", "frames"), default="video",

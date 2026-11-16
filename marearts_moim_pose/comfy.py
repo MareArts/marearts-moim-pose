@@ -277,6 +277,10 @@ STRAY_BAND = 14
 FEET_FIX = 0.65
 FEET_LOW, FEET_HIGH = 0.75, 1.3
 FEET_MIN = 2.0      # feet with less line than this (drawings 3.8-16.7; flat colour 0.2-0.3) are not compared
+# Over this share of the feet's outline with no ink line round it (ma_feet_unlined) a foot is smeared: on 672 frames of
+# 28 people the 560 not passing a foot past the other read 0.00-0.09 (99 % under 0.03); every passing frame over 0.10
+# was a soft or doubled shoe by eye, the worst 0.52 (11-16)
+FEET_UNLINED = 0.10
 
 
 def ma_hand_fix_graph(depth_image: str, ref_image: str, start_image: str, mask_image: str, prompt: str,

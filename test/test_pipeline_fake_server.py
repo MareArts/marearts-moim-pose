@@ -796,6 +796,96 @@ def test_smeared_feet_drawn_again_from_frame_0(tmp_path):
     assert not row["checks"]                                 # still the video's: frame 0's goes on it at the end)
 
 
+class _FeetJudge:
+    """Every frame passes; the shoes are called a ghost every time (two shoes passing each other, 11-16)."""
+    def arms_ok(self, im, kind, hands=None):
+        return True, "2; near hand there"
+
+    def feet_ok(self, im):
+        return True, "2"
+
+    def feet_clean(self, im):
+        return False, "yes, the shoe is drawn twice"
+
+    def head_likeness(self, im, ref):
+        return 0.97
+
+    def facing(self, im):
+        return "right"
+
+
+def _feet_run(tmp_path, judge, **kw):
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    ref = tmp_path / "person.png"
+    if not ref.exists():
+        Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
+    lines = []
+    try:
+        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120),
+                            MaComfy(f"http://127.0.0.1:{srv.server_port}"), judge=judge, log=lines.append, **kw)
+    finally:
+        srv.shutdown()
+    return res, lines
+
+
+def test_judge_calling_every_shoe_a_ghost_keeps_the_cleanest_try(tmp_path):
+    # 11-16: the judge would not let 55 frames go, 40 of them clean by eye, and every smeared one stayed as the video
+    # drew it: the try with the cleanest outline is kept when it is clean by the outline
+    Fake.calls.clear()
+    Fake.blur_feet = {3}
+    try:
+        res, lines = _feet_run(tmp_path, _FeetJudge())
+    finally:
+        Fake.blur_feet = set()
+    said = [s for s in lines if s.startswith("frame 3") and ("kept" in s or "unlined" in s)]
+    assert any(s.endswith("the judge not sure: kept") for s in said), said
+    row = next(r for r in res["report"] if r["frame"] == 3)
+    assert 0.75 <= row["feet"] <= 1.3, row
+    # the clean frames, called a ghost too, stay as they were drawn: the judge alone does not swap a frame for a try
+    kept = [s for s in lines if "feet kept as drawn" in s]
+    assert kept and not any(s.startswith("frame 3") for s in kept), kept
+
+
+def test_feet_only_mends_a_finished_cycle_without_drawing_it(tmp_path):
+    from marearts_moim_pose.comfy import FEET_FIX
+    Fake.blur_feet = {3}
+    try:
+        _feet_run(tmp_path, None)                                   # no judge: no feet step, frame 3 left smeared
+        raw = tmp_path / "out" / "raw"
+        before = {i: (raw / f"walk_{i}.png").read_bytes() for i in range(8)}
+        Fake.calls.clear()
+        judge = _FeetJudge()
+        judge.feet_clean = lambda im: (True, "no")
+        res, lines = _feet_run(tmp_path, judge, only=[3], feet_only=True)
+    finally:
+        Fake.blur_feet = set()
+    assert "video" not in Fake.calls and "frame" not in Fake.calls          # nothing drawn whole
+    assert ("fix", FEET_FIX) in Fake.calls                                   # the feet only, in their box
+    assert any(s.startswith("frame 3") and s.endswith("ok") for s in lines), lines
+    after = {i: (raw / f"walk_{i}.png").read_bytes() for i in range(8)}
+    assert after[3] != before[3] and all(after[i] == before[i] for i in range(8) if i != 3)
+    assert res["files"]                                                      # locked and sheeted again
+
+
+def test_feet_unlined_reads_a_soft_shoe_whatever_the_background():
+    from marearts_moim_pose.checks import ma_feet_unlined
+    h, w = 400, 200
+    m = np.zeros((h, w), bool)
+    m[20:300, 80:120] = True                                    # the leg
+    m[300:380, 60:160] = True                                   # the shoe
+    for bg in (255, 0):                                         # a white frame, a transparent cut-out
+        lined = np.full((h, w, 3), bg, np.uint8)
+        lined[m] = (200, 150, 120)
+        edge = m & ~np.pad(m[1:-1, 1:-1] & m[:-2, 1:-1] & m[2:, 1:-1] & m[1:-1, :-2] & m[1:-1, 2:], 1)
+        lined[edge] = (30, 25, 25)                              # an ink line round it
+        soft = np.full((h, w, 3), bg, np.uint8)
+        soft[m] = (200, 150, 120)
+        assert ma_feet_unlined(lined, m) < 0.05
+        assert ma_feet_unlined(soft, m) > 0.5
+    assert ma_feet_unlined(np.zeros((h, w, 3), np.uint8), np.zeros((h, w), bool)) == 0.0
+
+
 def test_feet_clean_reads_yes_as_a_ghost_shoe():
     from marearts_moim_pose.judge import ASK_FEET_CLEAN, MaJudge
 

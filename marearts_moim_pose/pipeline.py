@@ -23,10 +23,10 @@ import numpy as np
 from PIL import Image
 
 from .checks import (FACING_SURE, ma_alternate_reason, ma_alternates, ma_clothes_change, ma_cutout, ma_feet_detail,
-                     ma_stray_arm,
+                     ma_feet_unlined, ma_stray_arm,
                      ma_facing, ma_frame_ok)
 from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, FEET_FIX, FEET_HIGH, FEET_LOW, FEET_MIN,
-                    HAND_FIX,
+                    FEET_UNLINED, HAND_FIX,
                     HEAD_FIX, STRAY_BAND, STRAY_FIX, STYLE, VIDEO_H, VIDEO_W, WALK,
                     MaComfy, ma_arm_words,
                     ma_cutout_graph, ma_hand_fix_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt,
@@ -116,11 +116,12 @@ class MaRequest:
 
 
 def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | None = None, log=print,
-                  use_seed: int | None = None) -> dict:
+                  use_seed: int | None = None, feet_only: bool = False) -> dict:
     """Draw, check and lock one cycle. Returns a report of every frame (seed, what was measured, the judge).
 
     use_seed: draw the `only` frames with exactly this seed (the same seed gives the same picture), e.g. to go back
-    to an earlier try that looked better than the new ones."""
+    to an earlier try that looked better than the new ones.
+    feet_only: the `only` frames of a finished cycle keep their drawing; only their feet are checked and mended."""
     out = Path(req.out)
     raw = out / "raw"
     raw.mkdir(parents=True, exist_ok=True)
@@ -201,52 +202,73 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         return ma_cutout(Image.open(raw / f"{req.kind}_{i}.png"), Image.open(raw / f"{req.kind}_{i}_mask.png"))
 
     def feet(i):
-        """Frame i's fine lines on the feet (ma_feet_detail) and its person mask."""
-        g = np.asarray(Image.open(raw / f"{req.kind}_{i}.png").convert("L"))
+        """Frame i's fine lines on the feet (ma_feet_detail), its person mask and how much of the feet's outline has
+        no ink line (ma_feet_unlined)."""
+        rgb = np.asarray(Image.open(raw / f"{req.kind}_{i}.png").convert("RGB"))
+        g = np.asarray(Image.fromarray(rgb).convert("L"))
         m = np.asarray(Image.open(raw / f"{req.kind}_{i}_mask.png").convert("L").resize(g.shape[::-1])) > 128
-        return ma_feet_detail(g, m), m
+        return ma_feet_detail(g, m), m, ma_feet_unlined(rgb, m)
 
     def feet_pass():
-        """Feet smeared or printed scaly against the cycle's own (under FEET_LOW or over FEET_HIGH of the median):
-        drawn again in a box round the feet from frame 0's look, kept only if they come out like the rest and the
-        frame still passes."""
-        detail = [feet(i)[0] for i in range(req.frames)]
-        mid = float(np.median(detail))
+        """Feet smeared or printed scaly against the cycle's own (under FEET_LOW or over FEET_HIGH of the median),
+        with no ink line round them (over FEET_UNLINED) or a ghost shoe by the judge: drawn again in a box round the
+        feet from frame 0's look, kept if they come out like the rest and the frame still passes. When no try
+        passes it all and the frame was smeared by the measures, the try with the cleanest outline that passes them is
+        kept."""
+        got = [feet(i) for i in range(req.frames)]
+        mid = float(np.median([d for d, _, _ in got]))
         if mid < FEET_MIN:
             return
         def clean(i):          # a judge of its own without the question passes (as before 11-09)
             ask = getattr(judge, "feet_clean", None)
             return ask is None or ask(Image.open(raw / f"{req.kind}_{i}.png"))[0]
 
+        files = lambda i: (raw / f"{req.kind}_{i}.png", raw / f"{req.kind}_{i}_mask.png")
         for i in drawn:
-            r = detail[i] / mid
+            r, m, unl = got[i][0] / mid, got[i][1], got[i][2]
             # a ghost shoe or a streak behind a lifting foot keeps the fine line of the rest (11-09): asked too
-            if FEET_LOW <= r <= FEET_HIGH and clean(i):
+            if FEET_LOW <= r <= FEET_HIGH and unl <= FEET_UNLINED and clean(i):
                 continue
             row = report[i]
-            keep = {p: p.read_bytes() for p in (raw / f"{req.kind}_{i}.png", raw / f"{req.kind}_{i}_mask.png")}
+            keep = {p: p.read_bytes() for p in files(i)}
             sharp = comfy.upload(Image.open(raw / f"{req.kind}_{i}.png").convert("RGB"), f"{req.name}_{req.kind}_sharp_{i}.png")
-            mask = comfy.upload(ma_feet_mask(feet(i)[1]), f"{req.name}_{req.kind}_feet_{i}.png")
-            ok = False
+            mask = comfy.upload(ma_feet_mask(m), f"{req.name}_{req.kind}_feet_{i}.png")
+            ok, best = False, None
             for sd in [x for x in ma_seeds(req.seed) if x not in row["tried"]][:tries]:
                 row["tried"].append(sd)
                 ok, said, verdict = draw(i, sd, look or ref_name, start=sharp, mask=mask, denoise=FEET_FIX)
-                after = feet(i)[0] / mid
+                d, _, u = feet(i)
+                after = d / mid
                 # the head is asked last: failed on it alone, every other check passed. The feet drawn again do
                 # not touch it (the video's own head, 0.90 against a bar of 0.91, sent a girl's mended feet back
                 # four times, 11-07) and ma_head_once puts frame 0's head on the frame in the end
                 head_only = "(another person)" in verdict
-                ok = (ok or head_only) and FEET_LOW <= after <= FEET_HIGH and clean(i)
-                log(f"frame {i} seed {sd}: feet {r:.2f} of the cycle's, drawn again {after:.2f}" + (", ok" if ok else ", again"))
+                fits = (ok or head_only) and FEET_LOW <= after <= FEET_HIGH
+                ok = fits and u <= FEET_UNLINED and clean(i)
+                log(f"frame {i} seed {sd}: feet {r:.2f} of the cycle's, unlined {unl:.2f}, drawn again {after:.2f}, "
+                    f"unlined {u:.2f}" + (", ok" if ok else ", again"))
                 if ok:
                     row.update(seed=sd, passed=not head_only, checks=not head_only, measured=said, judge=verdict,
                                feet=round(after, 2))
                     break
-            if not ok:
+                # the judge reads two shoes passing each other as a shoe drawn twice: of 55 frames it would not let
+                # go, 40 were clean by eye, and each smeared one stayed as the video drew it (11-16)
+                if fits and (best is None or u < best[0]):
+                    best = (u, sd, head_only, said, verdict, after, {p: p.read_bytes() for p in files(i)})
+            smeared = not FEET_LOW <= r <= FEET_HIGH or unl > FEET_UNLINED     # by the measures, not the judge alone
+            if not ok and best is not None and best[0] <= FEET_UNLINED and smeared:
+                u, sd, head_only, said, verdict, after, data = best
+                for p, b in data.items():
+                    p.write_bytes(b)
+                row.update(seed=sd, passed=not head_only, checks=not head_only, measured=said, judge=verdict,
+                           feet=round(after, 2))
+                log(f"frame {i} seed {sd}: feet drawn again {after:.2f} of the cycle's, unlined {u:.2f} (were {r:.2f}, "
+                    f"{unl:.2f}), the judge not sure: kept")
+            elif not ok:
                 for p, data in keep.items():
                     p.write_bytes(data)
                 row["feet"] = round(r, 2)
-                log(f"frame {i}: feet kept as drawn ({r:.2f} of the cycle's); look at them")
+                log(f"frame {i}: feet kept as drawn ({r:.2f} of the cycle's, unlined {unl:.2f}); look at them")
         path.write_text(json.dumps([report[k] for k in sorted(report)], indent=2) + "\n", encoding="utf-8")
 
     def face0(i):
@@ -409,8 +431,10 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
             look = comfy.upload(Image.open(raw / f"{req.kind}_look.png"), f"{req.name}_{req.kind}_look.png")
     if only is None and use_seed is None:
         keep_going()
+    if feet_only and (raw / f"{req.kind}_look.png").exists():
+        look = comfy.upload(Image.open(raw / f"{req.kind}_look.png").convert("RGB"), f"{req.name}_{req.kind}_look.png")
     for i in drawn:
-        if i in done:
+        if i in done or feet_only:
             continue
         draw_frame(i)
         if only is None and use_seed is None:
@@ -419,7 +443,7 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
     missing =[i for i in range(req.frames) if not (raw / f"{req.kind}_{i}.png").exists()]
     if not missing and judge is not None and use_seed is None:
         feet_pass()
-    if not missing and req.alternate:
+    if not missing and req.alternate and not feet_only:
         cuts = {i: cut(i) for i in range(req.frames)}
         alt = ma_alternates([cuts[i] for i in range(req.frames)], depths)
         # a frame on the same foot as its partner: drawn again with seeds it has not had (not with --use-seed, where
