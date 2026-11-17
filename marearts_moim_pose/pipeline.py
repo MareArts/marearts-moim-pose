@@ -33,7 +33,7 @@ from .comfy import (ARMS_NEAR_BACK, ARMS_NEAR_BACK_HALF, CARRY, EXTRA_FIX, FEET_
                     ma_cutout_graph, ma_hand_fix_graph, ma_klein_depth_graph, ma_klein_text_graph, ma_prompt,
                     ma_sharpen_graph, ma_video_graph)
 from .gait import LSHO, RSHO, H, W, MaGait, ma_frame_phases, ma_stride_px, ma_walk_points
-from .judge import HEAD_FLOOR, HEAD_MIN, HEAD_SLACK, ma_hand_box, ma_hand_boxes
+from .judge import HEAD_AGAIN_AFTER, HEAD_FLOOR, HEAD_MIN, HEAD_SLACK, ma_hand_box, ma_hand_boxes
 from .lock import ma_colour_match, ma_head_match, ma_head_once, ma_leg_masks, ma_leg_tones, ma_lock, ma_marks
 from .mannequin import ma_arms_on_body, ma_box_rect, ma_depth, ma_fit, ma_skirt_at, ma_skirt_flare, ma_skirt_hem, ma_skirt_hem_of, ma_skirt_of
 from .sheet import ma_loop_gif, ma_meta, ma_review_sheet, ma_sheet, ma_sprites, ma_strip_gif
@@ -456,10 +456,27 @@ def ma_draw_cycle(req: MaRequest, comfy: MaComfy, judge=None, only: list[int] | 
         keep_going()
     if feet_only and (raw / f"{req.kind}_look.png").exists():
         look = comfy.upload(Image.open(raw / f"{req.kind}_look.png").convert("RGB"), f"{req.name}_{req.kind}_look.png")
+    head_only = []                       # frames failed on the head alone, every other check passed on some seed
+
+    def head_again(i):
+        """The bar set again from this scene's own heads once HEAD_AGAIN_AFTER frames failed on the head alone: the
+        middle of every head that passed all else (frame 0 left out) less HEAD_SLACK, lower only, not under HEAD_FLOOR.
+        A head of another person scored 0.51-0.65, so the floor still sends one back."""
+        if i == 0 or report[i]["passed"] or not seen.get(i):
+            return
+        head_only.append(i)
+        got = [s for k, v in seen.items() if k != 0 for s, _ in v]
+        bar = max(HEAD_FLOOR, float(np.median(got)) - HEAD_SLACK)
+        if len(head_only) >= HEAD_AGAIN_AFTER and bar < head_min[0] - 1e-6:
+            log(f"frames {head_only} failed on the head alone (heads {min(got):.2f}-{max(got):.2f}): this person's bar "
+                f"{head_min[0]:.2f} -> {bar:.2f}")
+            head_min[0] = bar
+
     for i in drawn:
         if i in done or feet_only:
             continue
         draw_frame(i)
+        head_again(i)
         if only is None and use_seed is None:
             done.add(i)
             keep_going()

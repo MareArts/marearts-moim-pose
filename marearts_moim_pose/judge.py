@@ -225,6 +225,10 @@ class MaJudge:
 # 0.93-0.98; a bigger crop took in the collar or a carried box and the two overlapped (11-04).
 HEAD_MIN = 0.915
 HEAD_SLACK, HEAD_FLOOR = 0.03, 0.85        # the bar from the person's own frame 0 (pipeline): its score less this, not under
+# frames failed on the head alone before the bar is set again from this scene's own heads (pipeline): frame 0 passed
+# at 0.93 on its first seed, the bar became 0.90, and a bald man's and a boy's video frames, the same face by eye,
+# scored 0.83-0.90 and failed every seed, about 10 minutes a frame (11-17)
+HEAD_AGAIN_AFTER = 3
 HEAD_CROP = (0.25, 0.03, 0.85, 0.30)
 
 

@@ -1023,3 +1023,39 @@ def test_feet_try_left_by_a_stop_goes_back_before_a_frame_is_drawn_again(tmp_pat
         srv.shutdown()
     assert not list(raw.glob("*_feet_keep.png"))
     assert Image.open(raw / "walk_3.png").size != (8, 8)                 # the frame drawn again, not the old one
+
+
+def test_bar_set_again_when_frames_fail_on_the_head_alone(tmp_path):
+    # 11-17: frame 0 passed at 0.93 on its first seed, the bar became 0.90, and the video's frames of the same face
+    # scored 0.83-0.90: every seed of every frame failed on the head alone
+    from marearts_moim_pose.judge import HEAD_AGAIN_AFTER, HEAD_FLOOR
+
+    class Judge:
+        def arms_ok(self, im, kind, hands=None):
+            return True, "2; near hand there"
+
+        def feet_ok(self, im):
+            return True, "2"
+
+        def head_likeness(self, im, ref):
+            return 0.87 if "video" in Fake.calls else 0.93
+
+        def facing(self, im):
+            return "right"
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    Fake.calls.clear()
+    ref = tmp_path / "person.png"
+    Image.new("RGBA", (300, 700), (0, 0, 0, 0)).save(ref)
+    lines = []
+    try:
+        res = ma_draw_cycle(MaRequest(reference=ref, frames=8, out=tmp_path / "out", name="t", height=120),
+                            MaComfy(f"http://127.0.0.1:{srv.server_port}"), judge=Judge(), log=lines.append)
+    finally:
+        srv.shutdown()
+    said = [s for s in lines if "failed on the head alone" in s]
+    assert len(said) == 1 and f"0.90 -> {HEAD_FLOOR:.2f}" in said[0], said
+    rows = {r["frame"]: r for r in res["report"]}
+    assert not any(rows[i]["passed"] for i in range(1, 1 + HEAD_AGAIN_AFTER))     # before: the old bar
+    assert all(rows[i]["passed"] for i in range(1 + HEAD_AGAIN_AFTER, 8))         # after: the person's own heads
